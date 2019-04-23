@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation, Flatten
-from keras.layers import Conv2D, MaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
+from keras import initializers
 from keras.utils import to_categorical
 PATH = 'RBNS_example/'
 kernel_size = 12
@@ -76,11 +77,14 @@ def get_y(str_dict):
     return y
 
 
-def read_file_rbns(path):
+def read_file_rbns(path, max_len=-1):
     sequences = []
+
     with open(path, 'r') as f:
         for line in f:
             sequences.append(line.strip().split())
+            if 0 < max_len <= len(sequences):
+                break
     return sequences
 
 
@@ -101,13 +105,13 @@ def create_model(x_train):
 
     model = Sequential()
 
-    model.add(Conv2D(32, (12, 4), strides=(1, 1), padding='same', input_shape=x_train[0].shape))
+    model.add(Conv2D(32, (6, 4), strides=(1, 1), padding='same', input_shape=x_train[0].shape))
     model.add(Activation('relu'))
 
-    model.add(MaxPooling2D(pool_size=(6, 4)))
+    # model.add(MaxPooling2D(pool_size=(6, 4)))
 
     model.add(Flatten())
-    model.add(Dense(64))
+    model.add(Dense(256))
 
     model.add(Activation('relu'))
     model.add(Dropout(0.25))
@@ -117,6 +121,22 @@ def create_model(x_train):
 
     return model
 
+
+def create_model_rnn(x_train):
+    num_classes = 6
+    rnn_hidden_dim = 10
+    model = Sequential()
+
+    model.add(Dropout(0.25))
+    model.add(SimpleRNN(rnn_hidden_dim,
+                        kernel_initializer=initializers.RandomNormal(stddev=0.001),
+                        recurrent_initializer=initializers.Identity(gain=1.0),
+                        activation='relu',
+                        input_shape=x_train[0].shape[:-1]))
+    model.add(Dense(num_classes))
+    model.add(Activation('sigmoid'))
+
+    return model
 
 def fit_model(model):
     batch_size = 32
@@ -131,7 +151,7 @@ def fit_model(model):
 
     model.fit(np.array(x_train), np.array(y_train),
               batch_size=batch_size,
-              epochs=40,
+              epochs=20,
               shuffle=True)
 
 
@@ -157,16 +177,19 @@ def calc_corr(seqs, y_test, y_pred):
 
 
 if __name__ == '__main__':
+    print('Starting')
     l, cmpt_file = load_files(sys.argv)
     seqs_lists = []
 
     for file in l:
-        seqs = read_file_rbns(PATH + file)
+        seqs = read_file_rbns(PATH + file, max_len=20000)
         rc_seqs = [(reverse_compliment(seq), count) for (seq, count) in seqs]
         seqs_lists.append(rc_seqs)
+    print('Files loaded')
     str_dict = get_str_dict(seqs_lists)
     x_train = get_x(str_dict)
     y_train = get_y(str_dict)
+
     model = create_model(x_train)
     fit_model(model)
 
