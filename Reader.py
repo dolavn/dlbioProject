@@ -5,17 +5,21 @@ import sys
 import matplotlib.pyplot as plt
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Activation, Flatten
+from keras.preprocessing import sequence
+from keras.layers import Dense, Dropout, Activation, Flatten, Embedding
 from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
 from keras import initializers
 from keras.utils import to_categorical
+from DataGenerator import DataGenerator
 PATH = 'RBNS_example/'
+PATH = './'
 kernel_size = 12
 max_size = 45
 reverse_compliment_base = {'A': 'U', 'C': 'G', 'T': 'A', 'G': 'C', 'N': 'N'}
 
 
 def reverse_compliment(string):
+    return string.replace('T', 'U')
     string = [reverse_compliment_base[base] for base in string[::-1]]
     return ''.join(string)
 
@@ -32,13 +36,15 @@ def get_files_list(rbp_ind):
     lst = []
     for file in os.listdir(PATH):
         if file.startswith('RBP' + str(rbp_ind) + '_'):
-
+            suffix = file.split('.')[1]
+            if suffix != 'seq':
+                continue
             concentration = file.split('_')[1].split('nM')[0]
             concentration_val = 0
             if concentration != 'input.seq':
                 concentration_val = int(concentration)
 
-            lst.append((file, concentration_val))
+            lst.append((PATH + file, concentration_val))
 
     lst.sort(key=lambda x: x[1])
     return [file for file, cons in lst]
@@ -100,19 +106,18 @@ def sum_vec(arr):
     return np.sum(arr)
 
 
-def create_model(x_train):
+def create_model(dim):
     num_classes = 6
 
     model = Sequential()
-
-    model.add(Conv2D(32, (6, 4), strides=(1, 1), padding='same', input_shape=x_train[0].shape))
+    model.add(Conv2D(32, (12, 4), strides=(1, 1), padding='same', input_shape=dim))
     model.add(Activation('relu'))
-
+    #model.add(Conv2D(32, (6, 4), strides=(1, 1), padding='same'))
+    #model.add(Activation('relu'))
     # model.add(MaxPooling2D(pool_size=(6, 4)))
 
     model.add(Flatten())
-    model.add(Dense(256))
-
+    model.add(Dense(64))
     model.add(Activation('relu'))
     model.add(Dropout(0.25))
 
@@ -124,19 +129,20 @@ def create_model(x_train):
 
 def create_model_rnn(x_train):
     num_classes = 6
-    rnn_hidden_dim = 10
+    rnn_hidden_dim = 20
     model = Sequential()
-
     model.add(Dropout(0.25))
     model.add(SimpleRNN(rnn_hidden_dim,
                         kernel_initializer=initializers.RandomNormal(stddev=0.001),
                         recurrent_initializer=initializers.Identity(gain=1.0),
                         activation='relu',
                         input_shape=x_train[0].shape[:-1]))
+    model.add(Dense(256))
     model.add(Dense(num_classes))
     model.add(Activation('sigmoid'))
 
     return model
+
 
 def fit_model(model):
     batch_size = 32
@@ -159,16 +165,18 @@ def load_files(args):
     if len(args) != 3:
         raise BaseException("Not enough arguments")
     else:
-        CMPT_PATH = args[1]
-        RBNS_num = int(args[2])
-        l = get_files_list(RBNS_num)
-        cmpt_file = read_file_rncmpt(CMPT_PATH)
+        cmpt_path = args[1]
+        rbns_num = int(args[2])
+        l = get_files_list(rbns_num)
+        print(l)
+        cmpt_file = read_file_rncmpt(cmpt_path)
         return l, cmpt_file
 
 
 def calc_corr(seqs, y_test, y_pred):
     y_pred_scores = [np.dot(y, np.array([1, 1, 1, 1, 1, 1])) for y in y_pred]
     x_test_y_pred = list(zip(seqs, y_pred_scores, list(range(len(seqs)))))
+    x_test_y_pred = np.random.permutation(x_test_y_pred)
     x_test_y_pred_sorted = sorted(x_test_y_pred, key=lambda x: x[1], reverse=True)
     x_test_y_pred_tagged = [(seq, tag, ind) for (seq, score, ind), tag in zip(x_test_y_pred_sorted, y_test)]
     x_test_y_pred_tagged = sorted(x_test_y_pred_tagged, key=lambda x: x[2])
@@ -179,19 +187,17 @@ def calc_corr(seqs, y_test, y_pred):
 if __name__ == '__main__':
     print('Starting')
     l, cmpt_file = load_files(sys.argv)
-    seqs_lists = []
+    d = DataGenerator(l)
+    model = create_model(d.dim)
+    opt = keras.optimizers.rmsprop(lr=0.0005, decay=1e-6)
 
-    for file in l:
-        seqs = read_file_rbns(PATH + file, max_len=20000)
-        rc_seqs = [(reverse_compliment(seq), count) for (seq, count) in seqs]
-        seqs_lists.append(rc_seqs)
-    print('Files loaded')
-    str_dict = get_str_dict(seqs_lists)
-    x_train = get_x(str_dict)
-    y_train = get_y(str_dict)
-
-    model = create_model(x_train)
-    fit_model(model)
+    # Let's train the model using RMSprop
+    model.compile(loss='categorical_crossentropy',
+                  optimizer=opt,
+                  metrics=['accuracy'])
+    model.fit_generator(generator=d,
+                        use_multiprocessing=True,
+                        workers=10)
 
     seqs = [pad_conv(pad(seq, max_size), kernel_size) for seq in cmpt_file]
 
