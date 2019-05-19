@@ -60,7 +60,6 @@ class DataGenerator(keras.utils.Sequence):
 
     def __getitem__(self, index):
         indices = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
-        print('get')
         x, y = self._data_generation(indices)
         return x, y
 
@@ -71,10 +70,10 @@ class DataGenerator(keras.utils.Sequence):
 
     def _data_generation(self, indices_list):
         x = np.empty((self.batch_size, *self.dim))
-        y = np.empty((self.batch_size, len(self.rbns_files)))
+        y = np.empty((self.batch_size, 6))
         for i, ind in enumerate(indices_list):
             curr_x = one_hot_encode(self.lines[ind][0])
             x[i, ] = curr_x
-            y[i] = [1 if j == self.lines[ind][1] else 0 for j in range(len(self.rbns_files))]
+            y[i] = [1 if j == self.lines[ind][1] else 0 for j in range(6)]
         return x, y
 
