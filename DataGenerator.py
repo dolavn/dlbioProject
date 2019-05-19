@@ -23,14 +23,6 @@ def pad_conv(string, kernel_size):
     return string
 
 
-def count_lines_rbns(path):
-    size = 0
-    with open(path, 'r') as f:
-        for line in f:
-            size = size + 1
-    return size
-
-
 def one_hot(string):
     dict = {'A': np.array([1, 0, 0, 0]), 'G': np.array([0, 1, 0, 0]),
             'C': np.array([0, 0, 1, 0]), 'U': np.array([0, 0, 0, 1]),
@@ -39,28 +31,8 @@ def one_hot(string):
     return np.concatenate(vec_list, axis=0).reshape(len(vec_list), 4, 1)
 
 
-def get_line(path, ind):
-    curr_ind = 0
-    with open(path, 'r') as f:
-        for line in f:
-            if ind == curr_ind:
-                seq = line.strip().split()[0]
-                one_hot_vec = one_hot(reverse_compliment(seq))
-                return one_hot_vec
-            curr_ind = curr_ind + 1
-    raise BaseException("Index out of bounds")
-
-
 def one_hot_encode(line):
     return one_hot(reverse_compliment(line))
-
-
-def get_file_ind(ind, sizes):
-    for i, size in enumerate(sizes):
-        if ind < size:
-            return i, ind
-        ind = ind - size
-    raise BaseException("Index out of bounds")
 
 
 def read_file(path, ind, list):
