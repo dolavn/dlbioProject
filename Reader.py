@@ -14,8 +14,8 @@ from DataGenerator import DataGenerator
 from sklearn.metrics import average_precision_score
 
 
-PATH = 'RBP1_example/'
-PATH = './'
+PATH = 'RBNS_test/'
+#PATH = './'
 kernel_size = 12
 max_size = 45
 
@@ -64,14 +64,14 @@ def sum_vec(arr):
 def create_model(dim, num_classes):
 
     model = Sequential()
-    model.add(Conv2D(32, (12, 4), strides=(1, 1), padding='same', input_shape=dim))
+    model.add(Conv2D(32, (kernel_size, 4), strides=(1, 1), padding='same', input_shape=dim))
     model.add(Activation('relu'))
     #model.add(Conv2D(32, (6, 4), strides=(1, 1), padding='same'))
     #model.add(Activation('relu'))
-    # model.add(MaxPooling2D(pool_size=(6, 4)))
+    model.add(MaxPooling2D(pool_size=(dim[0]-kernel_size+1, 4)))
 
     model.add(Flatten())
-    model.add(Dense(64))
+    model.add(Dense(32))
     model.add(Activation('relu'))
     model.add(Dropout(0.25))
 
@@ -110,14 +110,16 @@ def load_files(args):
         return l, cmpt_file
 
 
-def calc_corr(seqs, y_test, y_pred):
-    y_pred_scores = [np.dot(y, np.array([1, 1, 1, 1, 1, 1])) for y in y_pred]
+def calc_corr(seqs, y_test, y_pred, num_classes):
+    y_pred_scores = [np.dot(y, np.concatenate((np.ones(1)*-1, np.ones(num_classes-1)))) for y in y_pred]
     x_test_y_pred = list(zip(seqs, y_pred_scores, list(range(len(seqs)))))
     x_test_y_pred = np.random.permutation(x_test_y_pred)
     x_test_y_pred_sorted = sorted(x_test_y_pred, key=lambda x: x[1], reverse=True)
-    x_test_y_pred_tagged = [(seq, tag, ind) for (seq, score, ind), tag in zip(x_test_y_pred_sorted, y_test)]
+    #print(x_test_y_pred_sorted[:20])
+    x_test_y_pred_tagged = [(seq, tag, int(ind)) for (seq, score, ind), tag in zip(x_test_y_pred_sorted, y_test)]
     x_test_y_pred_tagged = sorted(x_test_y_pred_tagged, key=lambda x: x[2])
 
+    #print(x_test_y_pred_tagged[:20])
     positives = sum([tag for (seq, tag, ind) in x_test_y_pred_tagged[:1000]])
 
     print('positives', positives)
@@ -129,22 +131,25 @@ def calc_corr(seqs, y_test, y_pred):
 
 
 if __name__ == '__main__':
+
+
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    d = DataGenerator(l, kernel_size, max_size, file_limit=20000)
+    d = DataGenerator(l, kernel_size, max_size, file_limit=1000000, batch_size=264)
+    print(d.get_files_num())
     model = create_model(d.dim, d.get_files_num())
-    opt = keras.optimizers.rmsprop(lr=0.0005, decay=1e-6)
+    opt = keras.optimizers.Adam()
 
     # Let's train the model using RMSprop
-    model.compile(loss='categorical_crossentropy',
+    model.compile(loss='binary_crossentropy',
                   optimizer=opt,
                   metrics=['accuracy'])
     model.fit_generator(generator=d,
-                        use_multiprocessing=False,
-                        epochs=20,
+                        use_multiprocessing=True,
+                        epochs=10,
                         workers=30)
 
     x_test = np.array([d.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
     y_pred = model.predict(x_test)
-    calc_corr(cmpt_seqs, y_test, y_pred)
+    calc_corr(cmpt_seqs, y_test, y_pred, d.get_files_num())
