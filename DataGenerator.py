@@ -2,16 +2,15 @@ import numpy as np
 import keras
 
 
-# max_size = 45
-# kernel_size = 12
+reverse_compliment_base = {'A': 'U', 'C': 'G', 'T': 'A', 'G': 'C', 'N': 'N'}
 
-# reverse_compliment_base = {'A': 'U', 'C': 'G', 'T': 'A', 'G': 'C', 'N': 'N'}
 
 class DataGenerator(keras.utils.Sequence):
-    def __init__(self, rbns_files, kernel_size, max_sample_size, batch_size=32, shuffle=False):
+    def __init__(self, rbns_files, kernel_size, max_sample_size, batch_size=16,
+                 file_limit=None, shuffle=False):
         self.kernel_size = kernel_size
         self.max_sample_size = max_sample_size
-
+        self.file_limit = file_limit
         self.dim = (max_sample_size + 2 * kernel_size - 2, 4, 1)
         self.rbns_files = rbns_files
         self.batch_size = batch_size
@@ -19,7 +18,7 @@ class DataGenerator(keras.utils.Sequence):
 
         for ind, file in enumerate(rbns_files):
             self.read_file(file, ind)
-
+        self.rbns_files = self.rbns_files
         self.size = len(self.lines)
         self.shuffle = shuffle
         self.indexes = np.arange(self.size)
@@ -27,13 +26,17 @@ class DataGenerator(keras.utils.Sequence):
         self.on_epoch_end()
 
     def read_file(self, path, ind):
+        count = 0
         with open(path, 'r') as f:
             for line in f:
                 seq = line.strip().split()[0]
                 self.lines.append((seq, ind))
+                count = count + 1
+                if self.file_limit is not None and count > self.file_limit:
+                    break
 
     def __len__(self):
-        return int(self.size / self.batch_size)
+        return int(np.floor(self.size / self.batch_size))
 
     def __getitem__(self, index):
         indices = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
@@ -47,11 +50,11 @@ class DataGenerator(keras.utils.Sequence):
 
     def _data_generation(self, indices_list):
         x = np.empty((self.batch_size, *self.dim))
-        y = np.empty((self.batch_size, len(self.rbns_files)))
+        y = np.empty((self.batch_size, self.get_files_num()))
         for i, ind in enumerate(indices_list):
             curr_x = self.one_hot_encode(self.lines[ind][0])
-            x[i,] = curr_x
-            y[i] = [1 if j == self.lines[ind][1] else 0 for j in range(len(self.rbns_files))]
+            x[i, ] = curr_x
+            y[i] = [1 if j == self.lines[ind][1] else 0 for j in range(self.get_files_num())]
         return x, y
 
     @staticmethod
@@ -80,3 +83,6 @@ class DataGenerator(keras.utils.Sequence):
 
     def one_hot_encode(self, line):
         return self.one_hot(DataGenerator.reverse_compliment(line))
+
+    def get_files_num(self):
+        return len(self.rbns_files)

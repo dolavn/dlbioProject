@@ -15,9 +15,10 @@ from sklearn.metrics import average_precision_score
 
 
 PATH = 'RBP1_example/'
-#PATH = './'
+PATH = './'
 kernel_size = 12
 max_size = 45
+
 
 def get_files_list(rbp_ind):
     lst = []
@@ -60,8 +61,7 @@ def sum_vec(arr):
     return np.sum(arr)
 
 
-def create_model(dim):
-    num_classes = 6
+def create_model(dim, num_classes):
 
     model = Sequential()
     model.add(Conv2D(32, (12, 4), strides=(1, 1), padding='same', input_shape=dim))
@@ -131,8 +131,8 @@ def calc_corr(seqs, y_test, y_pred):
 if __name__ == '__main__':
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    d = DataGenerator(l, kernel_size, max_size)
-    model = create_model(d.dim)
+    d = DataGenerator(l, kernel_size, max_size, file_limit=20000)
+    model = create_model(d.dim, d.get_files_num())
     opt = keras.optimizers.rmsprop(lr=0.0005, decay=1e-6)
 
     # Let's train the model using RMSprop
@@ -140,8 +140,9 @@ if __name__ == '__main__':
                   optimizer=opt,
                   metrics=['accuracy'])
     model.fit_generator(generator=d,
-                        use_multiprocessing=True,
-                        workers=10)
+                        use_multiprocessing=False,
+                        epochs=20,
+                        workers=30)
 
     x_test = np.array([d.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
