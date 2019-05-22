@@ -11,6 +11,9 @@ from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
 from keras import initializers
 
 from DataGenerator import DataGenerator
+from sklearn.metrics import average_precision_score
+
+
 PATH = 'RBP1_example/'
 #PATH = './'
 kernel_size = 12
@@ -114,8 +117,15 @@ def calc_corr(seqs, y_test, y_pred):
     x_test_y_pred_sorted = sorted(x_test_y_pred, key=lambda x: x[1], reverse=True)
     x_test_y_pred_tagged = [(seq, tag, ind) for (seq, score, ind), tag in zip(x_test_y_pred_sorted, y_test)]
     x_test_y_pred_tagged = sorted(x_test_y_pred_tagged, key=lambda x: x[2])
+
     positives = sum([tag for (seq, tag, ind) in x_test_y_pred_tagged[:1000]])
+
     print('positives', positives)
+
+    avg_precision = average_precision_score([tag for (seq, tag, ind) in x_test_y_pred_tagged], [int(x) for x in
+                                                     np.append(np.ones(1000), np.zeros(len(x_test) - 1000),
+                                                               axis=0)])
+    print('avg_precision', avg_precision)
 
 
 if __name__ == '__main__':
@@ -132,8 +142,6 @@ if __name__ == '__main__':
     model.fit_generator(generator=d,
                         use_multiprocessing=True,
                         workers=10)
-
-    #seqs = [d.pad_conv(d.pad(seq)) for seq in cmpt_file]
 
     x_test = np.array([d.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
