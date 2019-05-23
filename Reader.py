@@ -5,13 +5,15 @@ import sys
 import matplotlib.pyplot as plt
 import keras
 from keras.models import Sequential
+import time
 
 from keras.layers import Dense, Dropout, Activation, Flatten, Embedding
 from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
-from keras import initializers
+
 
 from DataGenerator import DataGenerator
 from sklearn.metrics import average_precision_score
+from keras.layers import GlobalMaxPooling2D
 
 
 PATH = 'RBNS_test/'
@@ -66,32 +68,14 @@ def create_model(dim, num_classes):
     model = Sequential()
     model.add(Conv2D(32, (kernel_size, 4), strides=(1, 1), padding='same', input_shape=dim))
     model.add(Activation('relu'))
-    #model.add(Conv2D(32, (6, 4), strides=(1, 1), padding='same'))
-    #model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(dim[0]-kernel_size+1, 4)))
+    model.add(GlobalMaxPooling2D())
+    #model.add(MaxPooling2D(pool_size=(dim[0]-kernel_size+1, 4)))
 
     model.add(Flatten())
     model.add(Dense(32))
     model.add(Activation('relu'))
     model.add(Dropout(0.25))
 
-    model.add(Dense(num_classes))
-    model.add(Activation('sigmoid'))
-
-    return model
-
-
-def create_model_rnn(x_train):
-    num_classes = 6
-    rnn_hidden_dim = 20
-    model = Sequential()
-    model.add(Dropout(0.25))
-    model.add(SimpleRNN(rnn_hidden_dim,
-                        kernel_initializer=initializers.RandomNormal(stddev=0.001),
-                        recurrent_initializer=initializers.Identity(gain=1.0),
-                        activation='relu',
-                        input_shape=x_train[0].shape[:-1]))
-    model.add(Dense(256))
     model.add(Dense(num_classes))
     model.add(Activation('sigmoid'))
 
@@ -132,10 +116,11 @@ def calc_corr(seqs, y_test, y_pred, num_classes):
 
 if __name__ == '__main__':
 
+    start = time.time()
 
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    d = DataGenerator(l, kernel_size, max_size, file_limit=1000000, batch_size=264)
+    d = DataGenerator(l, kernel_size, max_size, file_limit=None, batch_size=264)
     print(d.get_files_num())
     model = create_model(d.dim, d.get_files_num())
     opt = keras.optimizers.Adam()
@@ -153,3 +138,6 @@ if __name__ == '__main__':
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
     y_pred = model.predict(x_test)
     calc_corr(cmpt_seqs, y_test, y_pred, d.get_files_num())
+
+    end = time.time()
+    print('took', (end - start)/60, 'minutes')
