@@ -17,7 +17,7 @@ from keras.layers import GlobalMaxPooling2D
 
 
 PATH = 'RBNS_test/'
-#PATH = './'
+PATH = './'
 kernel_size = 12
 max_size = 45
 
@@ -71,7 +71,6 @@ def create_model(dim, num_classes):
     model.add(GlobalMaxPooling2D())
     #model.add(MaxPooling2D(pool_size=(dim[0]-kernel_size+1, 4)))
 
-    model.add(Flatten())
     model.add(Dense(32))
     model.add(Activation('relu'))
     model.add(Dropout(0.25))
@@ -120,7 +119,7 @@ if __name__ == '__main__':
 
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    d = DataGenerator(l, kernel_size, max_size, file_limit=None, batch_size=264)
+    d = DataGenerator(l, kernel_size, max_size, file_limit=200000, batch_size=264)
     print(d.get_files_num())
     model = create_model(d.dim, d.get_files_num())
     opt = keras.optimizers.Adam()
