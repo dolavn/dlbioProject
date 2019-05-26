@@ -41,11 +41,11 @@ class DataGenerator(keras.utils.Sequence):
 
     def _data_generation(self, indices_list):
         x = np.empty((self.batch_size, *self.dim))
-        y = np.empty((self.batch_size, self.num_of_files))
+        y = np.empty((self.batch_size, 1))
         for i, ind in enumerate(indices_list):
             curr_x = self.one_hot_encode(self.lines[ind][0])
             x[i, ] = curr_x
-            y[i] = [1 if file_ind == self.lines[ind][1] else 0 for file_ind in range(self.num_of_files)]
+            y[i, ] = 1 if self.lines[ind][1] > 0 else 0
         return x, y
 
     @staticmethod

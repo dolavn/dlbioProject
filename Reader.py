@@ -16,20 +16,28 @@ from sklearn.metrics import average_precision_score
 from keras.layers import GlobalMaxPooling2D
 
 
-PATH = 'RBP1/'
+PATH = 'RBNS/'
 #PATH = './'
 
-kernel_size = 12
+'''data parameters'''
+valid_p = 0
 max_size = 41
+file_limit = None
+
+'''model parameters'''
+kernel_size = 12
+num_of_kernels = 128
+
+'''fit parameters'''
 batch_size = 256
-valid_p = 0.3
-epochs = 1
+epochs = 5
+workers = 30
 
 
 class RBNSreader():
 
     @staticmethod
-    def read_files(rbns_files, file_limit):
+    def read_files(rbns_files, file_limit=None):
         lines_from_all_files = []
         for ind, file in enumerate(rbns_files):
             lines_from_all_files += RBNSreader.read_file(file, ind, file_limit)
@@ -93,17 +101,18 @@ def sum_vec(arr):
 def create_model(dim, num_classes):
 
     model = Sequential()
-    model.add(Conv2D(32, (kernel_size, 4), strides=(1, 1), padding='same', input_shape=dim))
+    model.add(Conv2D(num_of_kernels, (kernel_size, 4), strides=(1, 1), padding='valid', input_shape=dim))
     model.add(Activation('relu'))
     model.add(GlobalMaxPooling2D())
-    #model.add(MaxPooling2D(pool_size=(dim[0]-kernel_size+1, 4)))
 
-    model.add(Dense(32))
+    model.add(Dense(64))
     model.add(Activation('relu'))
     model.add(Dropout(0.25))
 
-    model.add(Dense(num_classes))
+    model.add(Dense(1))
     model.add(Activation('sigmoid'))
+
+    model.summary()
 
     return model
 
@@ -115,15 +124,16 @@ def load_files(args):
         cmpt_path = args[1]
         rbns_num = int(args[2])
         l = get_files_list(rbns_num)
-        print(l)
         cmpt_file = read_file_rncmpt(cmpt_path)
         return l, cmpt_file
 
 
 def calc_corr(seqs, y_test, y_pred, num_classes):
-    y_pred_scores = [np.dot(y, np.concatenate((np.ones(1)*-1, np.ones(num_classes-1)))) for y in y_pred]
+    #y_pred_scores = [np.dot(y, np.concatenate((np.ones(1)*-1, np.ones(num_classes-1)))) for y in y_pred]
+    y_pred_scores = [y[0] for y in y_pred]
+    #print(y_pred_scores)
     x_test_y_pred = list(zip(seqs, y_pred_scores, list(range(len(seqs)))))
-    x_test_y_pred = np.random.permutation(x_test_y_pred)
+    np.random.shuffle(x_test_y_pred)
     x_test_y_pred_sorted = sorted(x_test_y_pred, key=lambda x: x[1], reverse=True)
     #print(x_test_y_pred_sorted[:20])
     x_test_y_pred_tagged = [(seq, tag, int(ind)) for (seq, score, ind), tag in zip(x_test_y_pred_sorted, y_test)]
@@ -146,10 +156,11 @@ if __name__ == '__main__':
 
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    l = [l[0], l[-1]]
+    l = [l[0]] + l[-2:]
+    print(l)
     num_of_files = len(l)
 
-    lines_from_all_files = RBNSreader.read_files(l, file_limit=1000)
+    lines_from_all_files = RBNSreader.read_files(l, file_limit=file_limit)
     np.random.shuffle(lines_from_all_files)
 
     valid_n = int(valid_p * len(lines_from_all_files))
@@ -162,7 +173,10 @@ if __name__ == '__main__':
 
     train_gen = DataGenerator(train_data, num_of_files=num_of_files, kernel_size=kernel_size, max_sample_size=max_size,
                               batch_size=batch_size, shuffle=True)
-    valid_gen = DataGenerator(validation_data, num_of_files=num_of_files, kernel_size=kernel_size, max_sample_size=max_size,
+
+    valid_gen = None
+    if valid_n > 0:
+        valid_gen = DataGenerator(validation_data, num_of_files=num_of_files, kernel_size=kernel_size, max_sample_size=max_size,
                               batch_size=batch_size, shuffle=True)
 
     model = create_model(train_gen.dim, num_of_files)
@@ -174,10 +188,9 @@ if __name__ == '__main__':
                   metrics=['accuracy'])
     model.fit_generator(generator=train_gen,
                         validation_data=valid_gen,
-                        validation_steps=len(valid_gen),
                         use_multiprocessing=True,
                         epochs=epochs,
-                        workers=2)
+                        workers=workers)
 
     x_test = np.array([train_gen.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
