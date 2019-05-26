@@ -16,11 +16,38 @@ from sklearn.metrics import average_precision_score
 from keras.layers import GlobalMaxPooling2D
 
 
-PATH = 'RBNS_test/'
-PATH = './'
-kernel_size = 12
-max_size = 45
+PATH = 'RBP1/'
+#PATH = './'
 
+kernel_size = 12
+max_size = 41
+batch_size = 256
+valid_p = 0.3
+epochs = 1
+
+
+class RBNSreader():
+
+    @staticmethod
+    def read_files(rbns_files, file_limit):
+        lines_from_all_files = []
+        for ind, file in enumerate(rbns_files):
+            lines_from_all_files += RBNSreader.read_file(file, ind, file_limit)
+
+        return lines_from_all_files
+
+    @staticmethod
+    def read_file(path, ind, file_limit):
+        lines = []
+        count = 0
+        with open(path, 'r') as f:
+            for line in f:
+                seq = line.strip().split()[0]
+                lines.append((seq, ind))
+                count += 1
+                if file_limit and count >= file_limit:
+                    break
+        return lines
 
 def get_files_list(rbp_ind):
     lst = []
@@ -119,27 +146,43 @@ if __name__ == '__main__':
 
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    l = [l[0], l[5]]
-    d = DataGenerator(l, kernel_size, max_size, file_limit=2000000, batch_size=264)
-    v = d.get_validation(0.2)
-    print(d.get_files_num())
-    model = create_model(d.dim, d.get_files_num())
+    l = [l[0], l[-1]]
+    num_of_files = len(l)
+
+    lines_from_all_files = RBNSreader.read_files(l, file_limit=1000)
+    np.random.shuffle(lines_from_all_files)
+
+    valid_n = int(valid_p * len(lines_from_all_files))
+
+    validation_data = lines_from_all_files[:valid_n]
+    train_data = lines_from_all_files[valid_n:]
+
+    print('validation size', len(validation_data))
+    print('train size', len(train_data))
+
+    train_gen = DataGenerator(train_data, num_of_files=num_of_files, kernel_size=kernel_size, max_sample_size=max_size,
+                              batch_size=batch_size, shuffle=True)
+    valid_gen = DataGenerator(validation_data, num_of_files=num_of_files, kernel_size=kernel_size, max_sample_size=max_size,
+                              batch_size=batch_size, shuffle=True)
+
+    model = create_model(train_gen.dim, num_of_files)
     opt = keras.optimizers.Adam()
 
     # Let's train the model using RMSprop
     model.compile(loss='binary_crossentropy',
                   optimizer=opt,
                   metrics=['accuracy'])
-    model.fit_generator(generator=d,
-                        validation_data=v,
+    model.fit_generator(generator=train_gen,
+                        validation_data=valid_gen,
+                        validation_steps=len(valid_gen),
                         use_multiprocessing=True,
-                        epochs=10,
+                        epochs=epochs,
                         workers=2)
 
-    x_test = np.array([d.one_hot(seq) for seq in cmpt_seqs])
+    x_test = np.array([train_gen.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
     y_pred = model.predict(x_test)
-    calc_corr(cmpt_seqs, y_test, y_pred, d.get_files_num())
+    calc_corr(cmpt_seqs, y_test, y_pred, num_of_files)
 
     end = time.time()
     print('took', (end - start)/60, 'minutes')
