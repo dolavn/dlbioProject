@@ -119,7 +119,9 @@ if __name__ == '__main__':
 
     print('Starting')
     l, cmpt_seqs = load_files(sys.argv)
-    d = DataGenerator(l, kernel_size, max_size, file_limit=200000, batch_size=264)
+    l = [l[0], l[5]]
+    d = DataGenerator(l, kernel_size, max_size, file_limit=2000000, batch_size=264)
+    v = d.get_validation(0.2)
     print(d.get_files_num())
     model = create_model(d.dim, d.get_files_num())
     opt = keras.optimizers.Adam()
@@ -129,9 +131,10 @@ if __name__ == '__main__':
                   optimizer=opt,
                   metrics=['accuracy'])
     model.fit_generator(generator=d,
+                        validation_data=v,
                         use_multiprocessing=True,
                         epochs=10,
-                        workers=30)
+                        workers=2)
 
     x_test = np.array([d.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
