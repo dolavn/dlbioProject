@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import os
 import sys
-import matplotlib.pyplot as plt
 import keras
 from keras.models import Sequential
 import time
@@ -14,24 +13,28 @@ from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
 from DataGenerator import DataGenerator
 from sklearn.metrics import average_precision_score
 from keras.layers import GlobalMaxPooling2D
+import matplotlib.pyplot as plt
+
+plt.switch_backend('agg')
 
 
 PATH = 'RBNS/'
 #PATH = './'
 
 '''data parameters'''
-valid_p = 0
-max_size = 41
-file_limit = None
+valid_p = 0.25
+max_size = 45
+file_limit = 200000
 
 '''model parameters'''
-kernel_size = 12
+kernel_size = 14
 num_of_kernels = 128
+dense_layer_size = 32
 
 '''fit parameters'''
-batch_size = 256
+batch_size = 264
 epochs = 5
-workers = 30
+workers = 1
 
 
 class RBNSreader():
@@ -40,7 +43,7 @@ class RBNSreader():
     def read_files(rbns_files, file_limit=None):
         lines_from_all_files = []
         for ind, file in enumerate(rbns_files):
-            lines_from_all_files += RBNSreader.read_file(file, ind, file_limit)
+            lines_from_all_files += RBNSreader.read_file(file, ind+1, file_limit)
 
         return lines_from_all_files
 
@@ -105,9 +108,9 @@ def create_model(dim, num_classes):
     model.add(Activation('relu'))
     model.add(GlobalMaxPooling2D())
 
-    model.add(Dense(64))
+    model.add(Dense(dense_layer_size))
     model.add(Activation('relu'))
-    model.add(Dropout(0.25))
+    #model.add(Dropout(0.25))
 
     model.add(Dense(1))
     model.add(Activation('sigmoid'))
@@ -131,6 +134,7 @@ def load_files(args):
 def calc_corr(seqs, y_test, y_pred, num_classes):
     #y_pred_scores = [np.dot(y, np.concatenate((np.ones(1)*-1, np.ones(num_classes-1)))) for y in y_pred]
     y_pred_scores = [y[0] for y in y_pred]
+
     #print(y_pred_scores)
     x_test_y_pred = list(zip(seqs, y_pred_scores, list(range(len(seqs)))))
     np.random.shuffle(x_test_y_pred)
@@ -140,14 +144,31 @@ def calc_corr(seqs, y_test, y_pred, num_classes):
     x_test_y_pred_tagged = sorted(x_test_y_pred_tagged, key=lambda x: x[2])
 
     #print(x_test_y_pred_tagged[:20])
-    positives = sum([tag for (seq, tag, ind) in x_test_y_pred_tagged[:1000]])
+    positives = [tag for (seq, tag, ind) in x_test_y_pred_tagged[:1000]]
 
-    print('positives', positives)
+    print('positives', sum(positives))
 
     avg_precision = average_precision_score([tag for (seq, tag, ind) in x_test_y_pred_tagged], [int(x) for x in
                                                      np.append(np.ones(1000), np.zeros(len(x_test) - 1000),
                                                                axis=0)])
     print('avg_precision', avg_precision)
+
+    plt.figure(figsize=(20, 10))
+    plt.scatter(range(1, len(y_pred_scores)+1), y_pred_scores)
+    plt.savefig('scores.png')
+
+    with open('positives.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in range(len(positives)) if positives[i] == 1]))
+
+
+def create_negative_seqs(lines_from_all_files):
+    negative_seqs = []
+    for seq, ind in lines_from_all_files:
+        seq_list = [ch for ch in seq]
+        np.random.shuffle(seq_list)
+        negative_seqs.append((''.join(seq_list), 0))
+    return negative_seqs
+
 
 
 if __name__ == '__main__':
@@ -155,12 +176,14 @@ if __name__ == '__main__':
     start = time.time()
 
     print('Starting')
-    l, cmpt_seqs = load_files(sys.argv)
-    l = [l[0]] + l[-2:]
-    print(l)
-    num_of_files = len(l)
+    files, cmpt_seqs = load_files(sys.argv)
+    print(files)
+    files = files[-2:]
+    print(files)
+    num_of_files = len(files)
 
-    lines_from_all_files = RBNSreader.read_files(l, file_limit=file_limit)
+    lines_from_all_files = RBNSreader.read_files(files, file_limit=file_limit)
+    lines_from_all_files += create_negative_seqs(lines_from_all_files)
     np.random.shuffle(lines_from_all_files)
 
     valid_n = int(valid_p * len(lines_from_all_files))

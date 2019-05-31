@@ -43,7 +43,7 @@ class DataGenerator(keras.utils.Sequence):
         x = np.empty((self.batch_size, *self.dim))
         y = np.empty((self.batch_size, 1))
         for i, ind in enumerate(indices_list):
-            curr_x = self.one_hot_encode(self.lines[ind][0])
+            curr_x = self.one_hot(self.lines[ind][0])
             x[i, ] = curr_x
             y[i, ] = 1 if self.lines[ind][1] > 0 else 0
         return x, y
@@ -66,11 +66,12 @@ class DataGenerator(keras.utils.Sequence):
     def one_hot(self, string):
         encoding = {'A': np.array([1, 0, 0, 0]), 'G': np.array([0, 1, 0, 0]),
                     'C': np.array([0, 0, 1, 0]), 'U': np.array([0, 0, 0, 1]),
+                    'T': np.array([0, 0, 0, 1]),
                     'N': np.array([0.25] * 4)}
 
         padded_string = self.pad(string)
         vec_list = [encoding[c].reshape(1, -1) for c in self.pad_conv(padded_string)]
         return np.concatenate(vec_list, axis=0).reshape(len(vec_list), 4, 1)
 
-    def one_hot_encode(self, line):
-        return self.one_hot(DataGenerator.reverse_compliment(line))
+    #def one_hot_encode(self, line):
+    #    return self.one_hot(DataGenerator.reverse_compliment(line))
