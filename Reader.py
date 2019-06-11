@@ -5,7 +5,7 @@ import sys
 import keras
 from keras.models import Sequential
 import time
-
+import random
 from keras.layers import Dense, Dropout, Activation, Flatten, Embedding
 from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
 
@@ -19,7 +19,7 @@ plt.switch_backend('agg')
 
 
 PATH = 'RBNS/'
-#PATH = './'
+PATH = './'
 
 '''data parameters'''
 valid_p = 0.25
@@ -33,32 +33,78 @@ dense_layer_size = 32
 
 '''fit parameters'''
 batch_size = 264
-epochs = 5
+epochs = 2
 workers = 1
 
 
 class RBNSreader():
 
     @staticmethod
-    def read_files(rbns_files, file_limit=None):
-        lines_from_all_files = []
-        for ind, file in enumerate(rbns_files):
-            lines_from_all_files += RBNSreader.read_file(file, ind+1, file_limit)
-
-        return lines_from_all_files
-
-    @staticmethod
-    def read_file(path, ind, file_limit):
+    def get_kmer_map(path, k):
         lines = []
-        count = 0
+        kmer_map = {}
         with open(path, 'r') as f:
             for line in f:
                 seq = line.strip().split()[0]
-                lines.append((seq, ind))
-                count += 1
+                for i in range(len(seq)-k):
+                    kmer = seq[i:i+k]
+                    if 'N' in kmer:
+                        continue
+                    if kmer in kmer_map:
+                        kmer_map[kmer] += 1
+                    else:
+                        kmer_map[kmer] = 1
+        return kmer_map
+
+
+    @staticmethod
+    def read_files(rbns_files, file_limit=None, input_file=None, k=None):
+        lines_from_all_files = []
+        m_files = []
+        medians = []
+        if input_file and k:
+            m_input = RBNSreader.get_kmer_map(input_file, k)
+            m_files = [RBNSreader.get_kmer_map(file, k) for file in rbns_files]
+            medians = [0 for file in rbns_files]
+            for ind, m_file in enumerate(m_files):
+                for key in m_file.keys():
+                    if key not in m_input:
+                        m_file[key] = 100
+                    else:
+                        m_file[key] = m_file[key]/m_input[key]
+                l = [(key, m_file[key]) for key in m_file.keys()]
+                l.sort(key=lambda a: a[1], reverse=True)
+                medians[ind] = l[20][1]
+                print(medians[ind])
+        for ind, file in enumerate(rbns_files):
+            m_file = None if input_file is None else m_files[ind]
+            m_median = None if input_file is None else medians[ind]
+            lines_from_all_files += RBNSreader.read_file(file, ind+1, file_limit, m_file, m_median, k)
+        return lines_from_all_files
+
+    @staticmethod
+    def read_file(path, ind, file_limit, map=None, median=None, k=None):
+        lines = []
+        count = 0
+        total = 0
+        with open(path, 'r') as f:
+            for line in f:
+                total += 1
+                seq = line.strip().split()[0]
+                toAdd = False
+                if map:
+                    for kmer in [seq[i:i+k] for i in range(len(seq)-k)]:
+                        if kmer not in map or map[kmer] > median:
+                            toAdd = True
+                            break
+                if toAdd:
+                    lines.append((seq, ind))
+                    count += 1
                 if file_limit and count >= file_limit:
                     break
+        print('total:{} count{}'.format(total, count))
         return lines
+
 
 def get_files_list(rbp_ind):
     lst = []
@@ -107,7 +153,6 @@ def create_model(dim, num_classes):
     model.add(Conv2D(num_of_kernels, (kernel_size, 4), strides=(1, 1), padding='valid', input_shape=dim))
     model.add(Activation('relu'))
     model.add(GlobalMaxPooling2D())
-
     model.add(Dense(dense_layer_size))
     model.add(Activation('relu'))
     #model.add(Dropout(0.25))
@@ -170,7 +215,6 @@ def create_negative_seqs(lines_from_all_files):
     return negative_seqs
 
 
-
 if __name__ == '__main__':
 
     start = time.time()
@@ -178,11 +222,13 @@ if __name__ == '__main__':
     print('Starting')
     files, cmpt_seqs = load_files(sys.argv)
     print(files)
+    input_file = files[0]
     files = files[-2:]
     print(files)
+    print(input_file)
     num_of_files = len(files)
-
-    lines_from_all_files = RBNSreader.read_files(files, file_limit=file_limit)
+    lines_from_all_files = RBNSreader.read_files(files, file_limit=file_limit, input_file=input_file, k=3)
+    print(len(lines_from_all_files))
     lines_from_all_files += create_negative_seqs(lines_from_all_files)
     np.random.shuffle(lines_from_all_files)
 
@@ -211,10 +257,11 @@ if __name__ == '__main__':
                   metrics=['accuracy'])
     model.fit_generator(generator=train_gen,
                         validation_data=valid_gen,
-                        use_multiprocessing=True,
+                        use_multiprocessing=False,
                         epochs=epochs,
                         workers=workers)
-
+    weights = model.get_weights()
+    np.save('weights', weights)
     x_test = np.array([train_gen.one_hot(seq) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
     y_pred = model.predict(x_test)

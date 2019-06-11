@@ -50,9 +50,9 @@ class DataGenerator(keras.utils.Sequence):
 
     @staticmethod
     def reverse_compliment(string):
-        return string.replace('T', 'U')
-        # string = [reverse_compliment_base[base] for base in string[::-1]]
-        # return ''.join(string)
+        #return string.replace('T', 'U')
+        string = [reverse_compliment_base[base] for base in string[::-1]]
+        return ''.join(string)
 
     def pad(self, string):
         string += 'N' * (self.max_sample_size - len(string))
@@ -62,6 +62,9 @@ class DataGenerator(keras.utils.Sequence):
         pad = 'N' * (self.kernel_size - 1)
         string = pad + string + pad
         return string
+
+    def one_hot_rev(self, string):
+        return self.one_hot(self.reverse_compliment(string))
 
     def one_hot(self, string):
         encoding = {'A': np.array([1, 0, 0, 0]), 'G': np.array([0, 1, 0, 0]),
