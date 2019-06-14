@@ -25,7 +25,7 @@ use_shuffled_seqs = True
 '''data parameters'''
 valid_p = 0.0
 max_size = 45
-file_limit = 2000
+file_limit = 200000
 
 '''model parameters'''
 kernel_size = 9
