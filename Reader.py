@@ -79,7 +79,7 @@ class RBNSreader():
                 #if int(val) > 1:
                 #    more_than_one_occ += 1
                 #if count % 30 == 0:
-                #    lines.append((seq, ind))
+                lines.append((seq, ind))
                 #count += 1
                 if file_limit and len(lines) >= file_limit:
                     break
