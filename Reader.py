@@ -17,42 +17,38 @@ plt.switch_backend('agg')
 
 PATH = 'RBNS/'
 model_path = 'model'
-# PATH = './'
+PATH = './'
 
 is_binary_model = True
 use_shuffled_seqs = True
 
 '''data parameters'''
-valid_p = 0.2
+valid_p = 0.0
 max_size = 45
-file_limit = 250000
+file_limit = 2000
 
 '''model parameters'''
 kernel_size = 9
 num_of_kernels = 60
-dense_layers = [40]
-dense1_layer_size = 40
-dense2_layer_size = 0
-dense3_layer_size = 0
+DENSE_LAYERS = [40]
 
 '''fit parameters'''
 batch_size = 256
-epochs = 4
+epochs = 2
 workers = 1
 
 dim = (max_size + 2 * kernel_size - 2, 4, 1)
 
-model_path += '_samp{}_kernel{}_{}_dense1_{}_dense2_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(file_limit, kernel_size,
+layers_description = ''.join(['dense{}_{}'.format(i+1, dense) for i, dense in enumerate(DENSE_LAYERS)])
+model_path += '_samp{}_kernel{}_{}_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(file_limit, kernel_size,
                                                                                       num_of_kernels,
-                                                                                      dense1_layer_size,
-                                                                                      dense2_layer_size,
+                                                                                      layers_description,
                                                                                       batch_size, epochs,
                                                                                       use_shuffled_seqs,
                                                                                         is_binary_model)
 
 
 class RBNSreader():
-
     @staticmethod
     def get_kmer_map(path, k):
         kmer_map = {}
@@ -75,6 +71,7 @@ class RBNSreader():
         lines_from_all_files = []
         m_files = []
         medians = []
+        print(rbns_files)
         if input_file and k:
             file_name = input_file[input_file.find('./')+2:input_file.find('.seq')]
             path = "dict_input_{}_k{}".format(file_name, k)
@@ -172,12 +169,13 @@ def sum_vec(arr):
     return np.sum(arr)
 
 
-def create_model(dim, num_classes):
+def create_model(dim, num_classes, dense_layers=None):
     model = Sequential()
     model.add(Conv2D(num_of_kernels, (kernel_size, 4), strides=(1, 1), padding='valid', input_shape=dim))
     model.add(Activation('relu'))
     model.add(GlobalMaxPooling2D())
-
+    if not dense_layers:
+        dense_layers = DENSE_LAYERS
     for dense_size in dense_layers:
         model.add(Dense(dense_size))
         model.add(Activation('relu'))
@@ -203,8 +201,7 @@ def load_files(args):
         return files, cmpt_file, rbp_num
 
 
-def calc_auc(y_pred):
-
+def calc_auc(y_pred, x_test):
     if is_binary_model:
         y_pred_scores = [y[0] for y in y_pred]
     else:
@@ -220,7 +217,7 @@ def calc_auc(y_pred):
     plt.figure(figsize=(20, 10))
     plt.scatter(range(1, len(y_pred_scores) + 1), y_pred_scores)
     plt.savefig('scores.png')
-
+    return avg_precision
     '''
     with open('positives.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in range(len(positives)) if positives[i] == 1]))
@@ -236,12 +233,13 @@ def create_negative_seqs(lines_from_all_files):
     return negative_seqs
 
 
-def create_train_valid_data(negative_file, positive_files, threshold_val=None):
+def create_train_valid_data(negative_file, positive_files, num_of_classes, threshold_val=None):
     curr_k = 5
-    inp = files[0]
+    inp = negative_file
     if not threshold_val:
         curr_k = None
         inp = None
+    print(positive_files)
     lines_from_all_files = RBNSreader.read_files(positive_files, file_limit=file_limit, input_file=inp, k=curr_k,
                                                  threshold_val=threshold_val)
     if use_shuffled_seqs:
@@ -257,7 +255,6 @@ def create_train_valid_data(negative_file, positive_files, threshold_val=None):
 
     validation_data = lines_from_all_files[:valid_n]
     train_data = lines_from_all_files[valid_n:]
-
     print('validation size', len(validation_data))
     print('train size', len(train_data))
 
@@ -273,9 +270,9 @@ def create_train_valid_data(negative_file, positive_files, threshold_val=None):
 
     return train_gen, valid_gen
 
-def create_and_compile_model(dim, num_of_classes, loss_func):
 
-    model = create_model(dim, num_of_classes)
+def create_and_compile_model(dim, num_of_classes, loss_func, dense_layers=None):
+    model = create_model(dim, num_of_classes, dense_layers=dense_layers)
     opt = keras.optimizers.Adam(lr=0.01)
 
     model.compile(loss=loss_func,
@@ -303,8 +300,8 @@ def box_plot(data, name):
     # Create an axes instance
     ax = fig.add_subplot(111)
     ax.set_title(name)
-    ax.set_xlabel('$r$ threshold value')
-    ax.set_ylabel('Num of positives')
+    ax.set_xlabel('params')
+    ax.set_ylabel('accuracy')
     # Create the boxplot
     bp = ax.boxplot(values)
     for box in bp['boxes']:
@@ -314,25 +311,74 @@ def box_plot(data, name):
         median.set(color='#b2df8a', linewidth=2)
     ax.set_xticklabels(tags, fontsize=10)
     # Save the figure
-    fig.savefig('{}_fourth.png'.format(name), bbox_inches='tight')
+    fig.savefig('{}.png'.format(name), bbox_inches='tight')
 
 
-def plot_data(file_name):
-    with open(file_name) as data_file:
-        results = json.load(data_file)
+def plot_data(results):
     for rbp in results.keys():
         data = results[rbp]
         box_plot(data, 'RBP{}'.format(rbp))
     exit()
 
 
-if __name__ == '__main__':
+def calc_statistics(rbp_list, dense_list, threshold_list, output_file):
+    rncmpt_path = 'RNCMPT/RBP{}_RNCMPT.sorted'
+    args = [(sys.argv[0], rncmpt_path.format(rbp), rbp) for rbp in rbp_list]
+    args = [load_files(args) for args in args]
+    results = {}
+    start = time.time()
+    for files, cmpt_seqs, rbp_num in args:
+        files = [file for file, cons in files]
+        precision_scores = []
+        num_of_classes = len(files)
+        loss_func = 'categorical_crossentropy'
+        if is_binary_model:
+            num_of_classes = 1
+            loss_func = 'binary_crossentropy'
+        for dense_layer in dense_list:
+            for t in threshold_list:
+                NUM_OF_TRIALS = 2
+                for _ in range(NUM_OF_TRIALS):
+                    model = create_and_compile_model(dim, num_of_classes, loss_func, dense_layers=dense_layer)
+                    print('training model')
+                    train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:],
+                                                                   threshold_val=t, num_of_classes=num_of_classes)
+                    model = train_model(model, train_gen, valid_gen)
+                    model.save(model_path)
 
+                    x_test = np.array([DataGenerator.one_hot(seq, max_size, kernel_size) for seq in cmpt_seqs])
+                    y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
+                    y_pred = model.predict(x_test)
+                    precision = calc_auc(y_pred, x_test)
+                    precision_scores.append(((dense_layer, t), precision))
+        results[rbp_num] = precision_scores
+        with open(output_file, 'w') as data_file:
+            json.dump(results, data_file)
+    end = time.time()
+    print('took', (end - start) / 60, 'minutes')
+    print(results)
+
+
+def load_data(f_name):
+    with open(f_name) as data_file:
+        results = json.load(data_file)
+        plot_data(results)
+
+
+if __name__ == '__main__':
+    if sys.argv[1] == '-stats':
+        f_name = sys.argv[2]
+        calc_statistics([2, 7], [[], [16], [32]], [None], f_name)
+        exit()
+    if sys.argv[1] == '-plot':
+        f_name = sys.argv[2]
+        load_data(f_name)
+        exit()
     start = time.time()
 
     print('Starting')
-    files, cmpt_seqs, rbp_num = load_files(sys.argv)
 
+    files, cmpt_seqs, rbp_num = load_files(sys.argv)
     print(files)
     files = [files[0]] + files[-2:]
     print(files)
@@ -352,23 +398,18 @@ if __name__ == '__main__':
         print('loading model')
         model = keras.models.load_model(model_path)
     else:
-
         model = create_and_compile_model(dim, num_of_classes, loss_func)
-
         print('training model')
         #for file in files[1:]:
-        train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:])
+        train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:],
+                                                       num_of_classes=num_of_classes)
         model = train_model(model, train_gen, valid_gen)
         model.save(model_path)
 
     x_test = np.array([DataGenerator.one_hot(seq, max_size, kernel_size) for seq in cmpt_seqs])
     y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
     y_pred = model.predict(x_test)
-    calc_auc(y_pred)
+    calc_auc(y_pred, x_test)
 
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
-    results = {}
-    print(results)
-    with open('data_output5', 'w') as data_file:
-        json.dump(results, data_file)
