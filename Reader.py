@@ -5,7 +5,7 @@ import sys
 import keras
 from keras.models import Sequential
 import time
-
+import random
 from keras.layers import Dense, Dropout, Activation, Flatten, Embedding
 from keras.layers import Conv2D, MaxPooling2D, SimpleRNN
 
@@ -53,38 +53,71 @@ model_path += '_samp{}_kernel{}_{}_dense1_{}_dense2_{}_batch{}_epoch{}_shuf_{}_b
 
 
 class RBNSreader():
-    @staticmethod
-    def read_files(rbns_files, file_limit=None):
-        #file_limit2 = file_limit
-        #if file_limit != None:
-            #file_limit2 = file_limit * 4
-        lines_from_all_files = []
-        for ind, file in enumerate(rbns_files):
-            lines = RBNSreader.read_file(file, ind + 1, file_limit)
-            #np.random.shuffle(lines)
-            #lines_from_all_files += lines[:file_limit]
-            lines_from_all_files += lines[:file_limit]
 
+    @staticmethod
+    def get_kmer_map(path, k):
+        lines = []
+        kmer_map = {}
+        with open(path, 'r') as f:
+            for line in f:
+                seq = line.strip().split()[0]
+                for i in range(len(seq)-k):
+                    kmer = seq[i:i+k]
+                    if 'N' in kmer:
+                        continue
+                    if kmer in kmer_map:
+                        kmer_map[kmer] += 1
+                    else:
+                        kmer_map[kmer] = 1
+        return kmer_map
+
+
+    @staticmethod
+    def read_files(rbns_files, file_limit=None, input_file=None, k=None):
+        lines_from_all_files = []
+        m_files = []
+        medians = []
+        if input_file and k:
+            m_input = RBNSreader.get_kmer_map(input_file, k)
+            m_files = [RBNSreader.get_kmer_map(file, k) for file in rbns_files]
+            medians = [0 for file in rbns_files]
+            for ind, m_file in enumerate(m_files):
+                for key in m_file.keys():
+                    if key not in m_input:
+                        m_file[key] = 100
+                    else:
+                        m_file[key] = m_file[key]/m_input[key]
+                l = [(key, m_file[key]) for key in m_file.keys()]
+                l.sort(key=lambda a: a[1], reverse=True)
+                medians[ind] = l[20][1]
+                print(medians[ind])
+        for ind, file in enumerate(rbns_files):
+            m_file = None if input_file is None else m_files[ind]
+            m_median = None if input_file is None else medians[ind]
+            lines_from_all_files += RBNSreader.read_file(file, ind+1, file_limit, m_file, m_median, k)
         return lines_from_all_files
 
     @staticmethod
-    def read_file(path, ind, file_limit):
+    def read_file(path, ind, file_limit, map=None, median=None, k=None):
         lines = []
         count = 0
-        more_than_one_occ = 0
+        total = 0
         with open(path, 'r') as f:
             for line in f:
-                seq, val = line.strip().split()
-
-                #if int(val) > 1:
-                #    more_than_one_occ += 1
-                #if count % 30 == 0:
-                lines.append((seq, ind))
-                #count += 1
-                if file_limit and len(lines) >= file_limit:
+                total += 1
+                seq = line.strip().split()[0]
+                to_add = False if map else True
+                if map:
+                    for kmer in [seq[i:i+k] for i in range(len(seq)-k)]:
+                        if kmer not in map or map[kmer] > median:
+                            to_add = True
+                            break
+                if to_add:
+                    lines.append((seq, ind))
+                    count += 1
+                if file_limit and count >= file_limit:
                     break
-
-        print('more than one occ', more_than_one_occ)
+        print('total:{} count{}'.format(total, count))
         return lines
 
 
@@ -239,7 +272,7 @@ def train_model(model, train_gen, valid_gen):
 
     model.fit_generator(generator=train_gen,
                         validation_data=valid_gen,
-                        use_multiprocessing=True,
+                        use_multiprocessing=False,
                         epochs=epochs,
                         workers=workers)
 
