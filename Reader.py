@@ -247,7 +247,7 @@ def box_plot(data, name):
         box.set(color='#7570b3', linewidth=2)
     for median in bp['medians']:
         median.set(color='#b2df8a', linewidth=2)
-    ax.set_xticklabels(tags, fontsize=10)
+    ax.set_xticklabels(tags, fontsize=10, rotation='45')
     # Save the figure
     fig.savefig('{}.png'.format(name), bbox_inches='tight')
 
@@ -277,10 +277,12 @@ def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit,
                                                    custom_file_limit=c_file_limit)
 
     model = train_model(model, train_gen, valid_gen, epochs)
+    model.save(model_path)
 
     return model
 
-def predict(model, kernel_size):
+
+def predict(model, kernel_size, cmpt_seqs):
     """Use model to predict AUPR on the test dataset"""
 
     x_test = []
@@ -292,6 +294,7 @@ def predict(model, kernel_size):
     precision = calc_auc(y_pred)
 
     return precision
+
 
 def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_limits, epochs_list, output_file):
     """Try different hyper-parameters"""
@@ -314,10 +317,8 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                                                                                            num_of_kernel,
                                                                                            kernel_size,
                                                                                            epochs))
-
                 model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs)
-                precision = predict(model, kernel_size)
-
+                precision = predict(model, kernel_size, cmpt_seqs)
                 precision_scores.append(((dense_layer, kernel_size, num_of_kernel, epochs),
                                          precision))
                 results[rbp_num] = precision_scores
@@ -341,8 +342,9 @@ if __name__ == '__main__':
     first_arg = sys.argv[1]
     if first_arg == '-stats':
         f_name = sys.argv[2]
-        calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[20, 40, 20], [30, 30, 30], [20, 30, 30]],
-                        num_of_kernels=[[6, 8, 10]], file_limits=[FILE_LIMIT], epochs_list=[2], output_file=f_name)
+        calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[32, 32, 32]],
+                        num_of_kernels=[[8, 8, 8], [6, 8, 8], [8, 8, 10], [6, 8, 10]], file_limits=[FILE_LIMIT],
+                        epochs_list=[2], output_file=f_name)
         exit()
     if first_arg == '-plot':
         f_names = sys.argv[2:]
@@ -357,6 +359,7 @@ if __name__ == '__main__':
 
     print('Starting')
 
+    rbps = [16]
     aucs = []
 
     for rbp in rbps:
