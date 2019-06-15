@@ -301,12 +301,14 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
     args = [load_files(rbp) for rbp in rbp_list]
     results = {}
     start = time.time()
-    for files, cmpt_seqs, rbp_num in args:
-        files = [file for file, cons in files]
-        precision_scores = []
-
-        NUM_OF_TRIALS = 10
-        for _ in range(NUM_OF_TRIALS):
+    NUM_OF_TRIALS = 10
+    for _ in range(NUM_OF_TRIALS):
+        for files, cmpt_seqs, rbp_num in args:
+            files = [file for file, cons in files]
+            if rbp_num not in results:
+                precision_scores = []
+            else:
+                precision_scores = results[rbp_num]
             for c_file_limit, dense_layer, num_of_kernel, kernel_size, epochs in product(file_limits,
                                                                                  dense_list,
                                                                                  num_of_kernels, kernel_sizes,
