@@ -23,7 +23,7 @@ USE_SHUFFLED_SEQS = True
 '''data parameters'''
 valid_p = 0
 MAX_SAMPLE_SIZE = 45
-FILE_LIMIT = 500000
+FILE_LIMIT = 1000000
 
 '''model parameters'''
 KERNEL_SIZES = [6, 8, 10]
@@ -32,7 +32,7 @@ DENSE_LAYERS = [32]
 
 '''fit parameters'''
 BATCH_SIZE = 264
-EPOCHS = 5
+EPOCHS = 4
 workers = 1
 
 dim_func = lambda k_size: (MAX_SAMPLE_SIZE + 2 * k_size - 2, 4, 1)
@@ -363,7 +363,6 @@ if __name__ == '__main__':
 
     print('Starting')
 
-    rbps = [16]
     aucs = []
 
     for rbp in rbps:
@@ -396,13 +395,13 @@ if __name__ == '__main__':
         precision = predict(model, KERNEL_SIZES, cmpt_seqs)
         aucs.append((rbp, precision))
 
-        with open('AUC/RBP_{}.txt'.format(rbp), 'w') as f:
+        with open('AUC_RBP_{}.txt'.format(rbp), 'w') as f:
             f.write(str(precision))
 
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
 
-    with open('AUC/RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
+    with open('AUC_RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
         f.write('\n'.join(['RBP{}={}'.format(rbp, auc) for rbp, auc in aucs]))
         f.write('\n' + str(np.average([auc for rbp, auc in aucs])))
 
