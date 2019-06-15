@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-PATH = './second_experiment/'
+PATH = './experiment_3/'
 
 
 aucs = []
