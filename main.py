@@ -23,7 +23,8 @@ USE_SHUFFLED_SEQS = True
 '''data parameters'''
 valid_p = 0
 MAX_SAMPLE_SIZE = 45
-FILE_LIMIT = 2000000
+FILE_LIMIT = 500000
+POSITIVE_FILES_INDEXES = [-1]
 
 '''model parameters'''
 KERNEL_SIZES = [6, 8, 10]
@@ -34,6 +35,8 @@ DENSE_LAYERS = []
 BATCH_SIZE = 264
 EPOCHS = 2
 workers = 1
+
+OUTPUT = False
 
 dim_func = lambda k_size: (MAX_SAMPLE_SIZE + 2 * k_size - 2, 4, 1)
 
@@ -125,13 +128,16 @@ def load_files(rbp_num):
     return files, cmpt_file, rbp_num
 
 def load_files_from_args(args):
-    if len(args) != 3:
+    if len(args) < 3:
         raise BaseException("Not enough arguments")
     else:
         cmpt_path = args[1]
-        rbp_num = int(args[2])
-        files = get_files_list(rbp_num)
         cmpt_file = read_file_rncmpt(cmpt_path)
+
+        files = args[2:]
+
+        rbp_num = int(cmpt_path.split('RBP')[1].split('_')[0])
+
         return files, cmpt_file, rbp_num
 
 
@@ -147,11 +153,7 @@ def calc_auc(y_pred):
     avg_precision = average_precision_score(true, y_pred_scores)
     print('avg_precision', avg_precision)
 
-    plt.figure(figsize=(20, 10))
-    plt.scatter(range(1, len(y_pred_scores) + 1), y_pred_scores)
-    plt.savefig('scores.png')
-
-    return avg_precision
+    return avg_precision, y_pred_scores
 
 
 def create_negative_seqs(lines_from_all_files):
@@ -282,7 +284,7 @@ def train_pipeline(negative_file, positive_files, dense_layer, kernel_size, num_
 
 
 def predict(model, kernel_size, cmpt_seqs):
-    """Use model to predict AUPR on the test dataset"""
+    """Use model to predict AUPR on the test dataset, and create a sorted RNCMPT file"""
 
     x_test = []
     for kernel_size_i in kernel_size:
@@ -290,9 +292,9 @@ def predict(model, kernel_size, cmpt_seqs):
         x_test.append(x_curr)
 
     y_pred = model.predict(x_test)
-    precision = calc_auc(y_pred)
+    precision, scores = calc_auc(y_pred)
 
-    return precision
+    return precision, scores
 
 
 def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_limits, epochs_list, output_file):
@@ -332,6 +334,21 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
     print(results)
 
 
+def plot_scores(scores, rbp_num):
+    if not OUTPUT:
+        return
+    plt.figure(figsize=(20, 10))
+    plt.scatter(range(1, len(scores) + 1), scores)
+    plt.title('RBP_{}'.format(rbp_num))
+    plt.savefig('scores_RBP_{}.png'.format(rbp_num))
+
+
+def write_aupr(precision):
+    if not OUTPUT:
+        return
+    with open('AUC/RBP_{}.txt'.format(rbp_num), 'w') as f:
+        f.write(str(precision))
+
 def load_data(f_names):
     for f_name in f_names:
         with open(f_name) as data_file:
@@ -354,55 +371,44 @@ if __name__ == '__main__':
         load_data(f_names)
         exit()
 
-    rbps = range(1, 8)#[1, 2]
-    if first_arg == '-rbp':
-        rbps = [int(sys.argv[2])]
 
     start = time.time()
 
     print('Starting')
 
-    aucs = []
+    files, cmpt_seqs, rbp_num = load_files_from_args(sys.argv)
 
-    for rbp in rbps:
-        files, cmpt_seqs, rbp_num = load_files(rbp)
+    positive_file_names = [files[i] for i in POSITIVE_FILES_INDEXES]
 
-        pos_indexes = [-2, -1]
+    negative_file_name = files[0]
 
-        positive_file_names = [files[i][0] for i in pos_indexes]
-        positive_files_cons = [str(files[i][1]) for i in pos_indexes]
+    print('RBP', rbp_num)
+    new_model_path = model_path + '_rbp' + str(rbp_num) + 'files_' + '_'.join([str(i) for i in POSITIVE_FILES_INDEXES])
+    print(new_model_path)
 
-        negative_file_name = files[0][0]
+    exists = os.path.isfile(new_model_path)
+    if exists:
+        print('loading model')
+        model = keras.models.load_model(new_model_path)
+    else:
+        print('training model')
+        model = train_pipeline(negative_file_name, positive_file_names, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
+        model.save(new_model_path)
 
-        print('RBP', rbp)
-        new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join(positive_files_cons)
-        print(new_model_path)
+    precision, scores = predict(model, KERNEL_SIZES, cmpt_seqs)
 
-        files = [file for file, cons in files]
+    plot_scores(scores, rbp_num)
 
-        exists = os.path.isfile(new_model_path)
-        if exists:
-            print('loading model')
-            model = keras.models.load_model(new_model_path)
-        else:
-            print('training model')
-            print(negative_file_name)
-            print(positive_file_names)
-            model = train_pipeline(negative_file_name, positive_file_names, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
-            model.save(new_model_path)
+    seqs_with_scores = list(zip(cmpt_seqs, scores))
+    seqs_with_scores.sort(key=lambda x: x[1], reverse=True)
 
-        precision = predict(model, KERNEL_SIZES, cmpt_seqs)
-        aucs.append((rbp, precision))
+    with open('RBP{}_RNCMPT.sorted'.format(rbp_num), 'w') as f:
+        for seq, score in seqs_with_scores:
+            f.write(seq + '\n')
 
-        with open('AUC/RBP_{}.txt'.format(rbp), 'w') as f:
-            f.write(str(precision))
+    write_aupr(precision)
 
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
 
-    if len(rbps) > 1:
-        with open('AUC/RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
-            f.write('\n'.join(['RBP{}={}'.format(rbp, auc) for rbp, auc in aucs]))
-            f.write('\n' + str(np.average([auc for rbp, auc in aucs])))
 
-    print('average', np.average([auc for rbp, auc in aucs]))
