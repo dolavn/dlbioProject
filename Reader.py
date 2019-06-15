@@ -49,71 +49,17 @@ model_path += '_samp{}_{}_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(file_limit
 
 
 class RBNSreader():
-    @staticmethod
-    def get_kmer_map(path, k):
-        kmer_map = {}
-        with open(path, 'r') as f:
-            for line in f:
-                seq = line.strip().split()[0]
-                for i in range(len(seq)-k):
-                    kmer = seq[i:i+k]
-                    if 'N' in kmer:
-                        continue
-                    if kmer in kmer_map:
-                        kmer_map[kmer] += 1
-                    else:
-                        kmer_map[kmer] = 1
-        return kmer_map
-
 
     @staticmethod
-    def read_files(rbns_files, file_limit=None, input_file=None, k=None, threshold_val=None):
+    def read_files(rbns_files, file_limit=None):
         lines_from_all_files = []
-        m_files = []
-        medians = []
         print(rbns_files)
-        if input_file and k:
-            file_name = input_file[input_file.find('./')+2:input_file.find('.seq')]
-            path = "dict_input_{}_k{}".format(file_name, k)
-            dict_exists = os.path.isfile(path)
-            reload = not dict_exists
-            if dict_exists:
-                print('kmer dict exists {}'.format(path))
-                with open(path) as dict_file:
-                    m_files, _ = json.load(dict_file)
-                if len(m_files) != len(rbns_files):
-                    reload = True
-            if reload:
-                print('creating kmer dict {}'.format(path))
-                m_input = RBNSreader.get_kmer_map(input_file, k)
-                m_files = [RBNSreader.get_kmer_map(file, k) for file in rbns_files]
-                medians = [0 for file in rbns_files]
-                for ind, m_file in enumerate(m_files):
-                    for key in m_file.keys():
-                        if key not in m_input:
-                            m_file[key] = 100
-                        else:
-                            m_file[key] = m_file[key] / m_input[key]
-                with open(path, 'w') as dict_file:
-                    json.dump((m_files, medians), dict_file)
-        medians = [0 for _ in range(len(m_files))]
-        for ind, m_file in enumerate(m_files):
-            l = [(key, m_file[key]) for key in m_file.keys()]
-            l.sort(key=lambda a: a[1], reverse=True)
-            medians[ind] = threshold_val
-            # print(medians[ind])
-            # print(sum([a[1] for a in l])/len(l))
-        print(len(rbns_files))
-        print(len(m_files))
-        print(medians)
         for ind, file in enumerate(rbns_files):
-            m_file = None if input_file is None else m_files[ind]
-            m_median = None if input_file is None else medians[ind]
-            lines_from_all_files += RBNSreader.read_file(file, ind+1, file_limit, m_file, m_median, k)
+            lines_from_all_files += RBNSreader.read_file(file, ind+1, file_limit)
         return lines_from_all_files
 
     @staticmethod
-    def read_file(path, ind, file_limit, map=None, median=None, k=None):
+    def read_file(path, ind, file_limit):
         lines = []
         count = 0
         total = 0
@@ -121,15 +67,8 @@ class RBNSreader():
             for line in f:
                 total += 1
                 seq = line.strip().split()[0]
-                to_add = False if map else True
-                if map:
-                    for kmer in [seq[i:i+k] for i in range(len(seq)-k)]:
-                        if kmer not in map or map[kmer] > median:
-                            to_add = True
-                            break
-                if to_add:
-                    lines.append((seq, ind))
-                    count += 1
+                lines.append((seq, ind))
+                count += 1
                 if file_limit and count >= file_limit:
                     break
         print('total:{} count{}'.format(total, count))
@@ -241,21 +180,15 @@ def create_negative_seqs(lines_from_all_files):
     return negative_seqs
 
 
-def create_train_valid_data(negative_file, positive_files, num_of_classes, threshold_val=None, kernel_size=None,
+def create_train_valid_data(negative_file, positive_files, num_of_classes, kernel_size=None,
                             custom_file_limit=None):
-    curr_k = 5
-    inp = negative_file
     if not kernel_size:
         kernel_size = KERNEL_SIZES
-    if not threshold_val:
-        curr_k = None
-        inp = None
     print(custom_file_limit)
     if not custom_file_limit:
         custom_file_limit = file_limit
     print(custom_file_limit)
-    lines_from_all_files = RBNSreader.read_files(positive_files, file_limit=custom_file_limit, input_file=inp, k=curr_k,
-                                                 threshold_val=threshold_val)
+    lines_from_all_files = RBNSreader.read_files(positive_files, file_limit=custom_file_limit)
     if use_shuffled_seqs:
         lines_from_all_files += create_negative_seqs(lines_from_all_files)
     else:
@@ -377,7 +310,6 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                 print('training model')
                 train_gen, valid_gen = create_train_valid_data(negative_file=files[0],
                                                                positive_files=[files[-2]],
-                                                               threshold_val=None,
                                                                num_of_classes=num_of_classes,
                                                                kernel_size=kernel_size,
                                                                custom_file_limit=c_file_limit)
