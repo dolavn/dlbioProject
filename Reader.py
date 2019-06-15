@@ -21,9 +21,9 @@ IS_BINARY_MODEL = True
 USE_SHUFFLED_SEQS = True
 
 '''data parameters'''
-valid_p = 0.2
+valid_p = 0
 MAX_SAMPLE_SIZE = 45
-FILE_LIMIT = 250000
+FILE_LIMIT = 500000
 
 '''model parameters'''
 KERNEL_SIZES = [6, 8]
@@ -258,7 +258,7 @@ def plot_data(results, file_name):
         box_plot(data, '{}_RBP{}'.format(file_name, rbp))
 
 
-def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs):
+def train_pipeline(negative_file, positive_files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs):
 
     """create model, datasets, train model. Return the trained model"""
     num_of_classes = len(files)
@@ -270,8 +270,8 @@ def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit,
     model = create_and_compile_model(num_of_classes, loss_func, dense_layers=dense_layer,
                                      kernel_size=kernel_size, num_of_kernels=num_of_kernel)
     print('training model')
-    train_gen, valid_gen = create_train_valid_data(negative_file=files[0],
-                                                   positive_files=[files[-2]],
+    train_gen, valid_gen = create_train_valid_data(negative_file=negative_file,
+                                                   positive_files=positive_files,
                                                    num_of_classes=num_of_classes,
                                                    kernel_size=kernel_size,
                                                    custom_file_limit=c_file_limit)
@@ -317,7 +317,9 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                                                                                            num_of_kernel,
                                                                                            kernel_size,
                                                                                            epochs))
-                model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs)
+                negative_file = files[0]
+                positive_files = files[-2:]
+                model = train_pipeline(negative_file, positive_files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs)
                 precision = predict(model, kernel_size, cmpt_seqs)
                 precision_scores.append(((dense_layer, kernel_size, num_of_kernel, epochs),
                                          precision))
@@ -359,15 +361,21 @@ if __name__ == '__main__':
 
     print('Starting')
 
-    rbps = [16]
+    rbps = range(1, 8)
     aucs = []
 
     for rbp in rbps:
         files, cmpt_seqs, rbp_num = load_files(rbp)
 
-        files = [files[0]] + files[-2:]
+        pos_indexes = [-2, -1]
+
+        positive_file_names = [files[i][0] for i in pos_indexes]
+        positive_files_cons = [str(files[i][1]) for i in pos_indexes]
+
+        negative_file_name = files[0][0]
+
         print('RBP', rbp)
-        new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join([str(cons) for file, cons in files[1:]])
+        new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join(positive_files_cons)
         print(new_model_path)
 
         files = [file for file, cons in files]
@@ -378,7 +386,9 @@ if __name__ == '__main__':
             model = keras.models.load_model(new_model_path)
         else:
             print('training model')
-            model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
+            print(negative_file_name)
+            print(positive_file_names)
+            model = train_pipeline(negative_file_name, positive_file_names, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
             model.save(new_model_path)
 
         precision = predict(model, KERNEL_SIZES, cmpt_seqs)
