@@ -24,17 +24,14 @@ is_binary_model = True
 use_shuffled_seqs = True
 
 '''data parameters'''
-valid_p = 0.2
+valid_p = 0
 max_size = 45
-file_limit = 250000
+file_limit = 1000000
 
 '''model parameters'''
-kernel_size = 9
-num_of_kernels = 60
-dense_layers = [40]
-dense1_layer_size = 40
-dense2_layer_size = 0
-dense3_layer_size = 0
+kernel_size = 8
+num_of_kernels = 64
+dense_layers = []
 
 '''fit parameters'''
 batch_size = 256
@@ -43,10 +40,9 @@ workers = 1
 
 dim = (max_size + 2 * kernel_size - 2, 4, 1)
 
-model_path += '_samp{}_kernel{}_{}_dense1_{}_dense2_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(file_limit, kernel_size,
+model_path += '_samp{}_kernel{}_{}_dense_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(file_limit, kernel_size,
                                                                                       num_of_kernels,
-                                                                                      dense1_layer_size,
-                                                                                      dense2_layer_size,
+                                                                                     '-'.join(str(d) for d in dense_layers),
                                                                                       batch_size, epochs,
                                                                                       use_shuffled_seqs,
                                                                                         is_binary_model)
@@ -102,6 +98,9 @@ class RBNSreader():
         lines = []
         count = 0
         total = 0
+        indexes = list(range(10000000))
+        random.shuffle(indexes)
+        indexes = set(indexes[:file_limit])
         with open(path, 'r') as f:
             for line in f:
                 total += 1
@@ -112,11 +111,12 @@ class RBNSreader():
                         if kmer not in map or map[kmer] > median:
                             to_add = True
                             break
+                to_add = True if count in indexes else False
                 if to_add:
                     lines.append((seq, ind))
-                    count += 1
-                if file_limit and count >= file_limit:
-                    break
+                count += 1
+                #if file_limit and count >= file_limit:
+                #    break
         print('total:{} count{}'.format(total, count))
         return lines
 
@@ -137,17 +137,6 @@ def get_files_list(rbp_ind):
 
     lst.sort(key=lambda x: x[1])
     return lst
-
-
-def read_file_rbns(path, max_len=-1):
-    sequences = []
-
-    with open(path, 'r') as f:
-        for line in f:
-            sequences.append(line.strip().split())
-            if 0 < max_len <= len(sequences):
-                break
-    return sequences
 
 
 def read_file_rncmpt(file_path):
@@ -182,7 +171,15 @@ def create_model(dim, num_classes):
     return model
 
 
-def load_files(args):
+def load_files(rbp_num):
+    rncpmt_path = 'RNCMPT/RBP'+str(rbp_num)+'_RNCMPT.sorted'
+    files = get_files_list(rbp_num)
+    cmpt_file = read_file_rncmpt(rncpmt_path)
+
+    return files, cmpt_file, rbp_num
+
+
+def load_files_from_args(args):
     if len(args) != 3:
         raise BaseException("Not enough arguments")
     else:
@@ -198,8 +195,6 @@ def calc_auc(y_pred):
     if is_binary_model:
         y_pred_scores = [y[0] for y in y_pred]
     else:
-        print(y_pred[0])
-        print(np.concatenate((np.ones(1) * -10, np.array([10, 100]))))
         y_pred_scores = [np.dot(y, np.concatenate((np.ones(1) * -10, np.array([20, 10])))) for y in y_pred]
 
     true = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
@@ -211,10 +206,9 @@ def calc_auc(y_pred):
     plt.scatter(range(1, len(y_pred_scores) + 1), y_pred_scores)
     plt.savefig('scores.png')
 
-    '''
-    with open('positives.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in range(len(positives)) if positives[i] == 1]))
-    '''
+
+
+    return avg_precision
 
 
 def create_negative_seqs(lines_from_all_files):
@@ -234,8 +228,6 @@ def create_train_valid_data(negative_file, positive_files):
         lines_from_all_files += RBNSreader.read_file(negative_file, 0, file_limit)
 
     np.random.shuffle(lines_from_all_files)
-
-    print(lines_from_all_files[:10])
 
     valid_n = int(valid_p * len(lines_from_all_files))
 
@@ -284,40 +276,51 @@ if __name__ == '__main__':
     start = time.time()
 
     print('Starting')
-    files, cmpt_seqs, rbp_num = load_files(sys.argv)
+    rbps = [16]
+    aucs = []
 
-    print(files)
-    files = [files[0]] + files[-2:]
-    print(files)
-    model_path += '_rbp' + str(rbp_num) + 'files_' + '_'.join([str(cons) for file, cons in files[1:]])
-    print(model_path)
+    for rbp in rbps:
+        files, cmpt_seqs, rbp_num = load_files(rbp)
 
-    files = [file for file, cons in files]
-    num_of_classes = len(files)
-    print('classes', num_of_classes)
-    loss_func = 'categorical_crossentropy'
-    if is_binary_model:
-        num_of_classes = 1
-        loss_func = 'binary_crossentropy'
+        files = [files[0]] + files[-2:]
+        print('RBP', rbp)
+        new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join([str(cons) for file, cons in files[1:]])
+        print(new_model_path)
 
-    exists = os.path.isfile(model_path)
-    if exists:
-        print('loading model')
-        model = keras.models.load_model(model_path)
-    else:
+        files = [file for file, cons in files]
+        num_of_classes = len(files)
+        print('classes', num_of_classes)
+        loss_func = 'categorical_crossentropy'
+        if is_binary_model:
+            num_of_classes = 1
+            loss_func = 'binary_crossentropy'
 
-        model = create_and_compile_model(dim, num_of_classes, loss_func)
+        exists = os.path.isfile(new_model_path)
+        if exists:
+            print('loading model')
+            model = keras.models.load_model(new_model_path)
+        else:
 
-        print('training model')
-        #for file in files[1:]:
-        train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:])
-        model = train_model(model, train_gen, valid_gen)
-        model.save(model_path)
+            model = create_and_compile_model(dim, num_of_classes, loss_func)
 
-    x_test = np.array([DataGenerator.one_hot(seq, max_size, kernel_size) for seq in cmpt_seqs])
-    y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
-    y_pred = model.predict(x_test)
-    calc_auc(y_pred)
+            print('training model')
+            #for file in files[1:]:
+            train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:])
+            model = train_model(model, train_gen, valid_gen)
+            model.save(new_model_path)
 
-    end = time.time()
-    print('took', (end - start) / 60, 'minutes')
+        x_test = np.array([DataGenerator.one_hot(seq, max_size, kernel_size) for seq in cmpt_seqs])
+        y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
+        y_pred = model.predict(x_test)
+        auc = calc_auc(y_pred)
+
+        aucs.append(auc)
+        print(auc)
+
+        end = time.time()
+        print('took', (end - start) / 60, 'minutes')
+
+    with open(model_path+'_AUC.txt', 'w') as f:
+        f.write('\n'.join([str(auc) for auc in aucs]))
+        f.write('\n' + str(np.average(aucs)))
+    print(np.average(aucs))
