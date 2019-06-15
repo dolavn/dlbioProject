@@ -15,24 +15,24 @@ import matplotlib.pyplot as plt
 plt.switch_backend('agg')
 
 PATH = 'RBNS/'
-# PATH = './'
+PATH = './'
 
 IS_BINARY_MODEL = True
 USE_SHUFFLED_SEQS = True
 
 '''data parameters'''
-valid_p = 0.2
+valid_p = 0
 MAX_SAMPLE_SIZE = 45
-FILE_LIMIT = 8000
+FILE_LIMIT = 500000
 
 '''model parameters'''
-KERNEL_SIZES = [6, 8]
-NUM_OF_KERNELS = [30, 30]
+KERNEL_SIZES = [6, 8, 10]
+NUM_OF_KERNELS = [32, 32, 32]
 DENSE_LAYERS = [32]
 
 '''fit parameters'''
 BATCH_SIZE = 264
-EPOCHS = 2
+EPOCHS = 5
 workers = 1
 
 dim_func = lambda k_size: (MAX_SAMPLE_SIZE + 2 * k_size - 2, 4, 1)
@@ -302,12 +302,14 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
     args = [load_files(rbp) for rbp in rbp_list]
     results = {}
     start = time.time()
-    for files, cmpt_seqs, rbp_num in args:
-        files = [file for file, cons in files]
-        precision_scores = []
-
-        NUM_OF_TRIALS = 10
-        for _ in range(NUM_OF_TRIALS):
+    NUM_OF_TRIALS = 10
+    for _ in range(NUM_OF_TRIALS):
+        for files, cmpt_seqs, rbp_num in args:
+            files = [file for file, cons in files]
+            if rbp_num not in results:
+                precision_scores = []
+            else:
+                precision_scores = results[rbp_num]
             for c_file_limit, dense_layer, num_of_kernel, kernel_size, epochs in product(file_limits,
                                                                                  dense_list,
                                                                                  num_of_kernels, kernel_sizes,
@@ -354,7 +356,7 @@ if __name__ == '__main__':
 
     print('Starting')
 
-    rbps = [16]
+    rbps = [sys.argv[1]]
     aucs = []
 
     for rbp in rbps:
@@ -367,10 +369,10 @@ if __name__ == '__main__':
 
         files = [file for file, cons in files]
 
-        exists = os.path.isfile(model_path)
+        exists = os.path.isfile(new_model_path)
         if exists:
             print('loading model')
-            model = keras.models.load_model(model_path)
+            model = keras.models.load_model(new_model_path)
         else:
             print('training model')
             model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
@@ -381,8 +383,8 @@ if __name__ == '__main__':
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
 
-    with open(model_path+'_AUC.txt', 'w') as f:
+    print('average', np.average(aucs))
+    with open(model_path+'rbp{}_AUC.txt'.format(rbps[0]), 'w') as f:
         f.write('\n'.join([str(auc) for auc in aucs]))
         f.write('\n' + str(np.average(aucs)))
 
-    print('average', np.average(aucs))
