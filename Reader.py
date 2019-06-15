@@ -23,12 +23,12 @@ USE_SHUFFLED_SEQS = True
 '''data parameters'''
 valid_p = 0.2
 MAX_SAMPLE_SIZE = 45
-FILE_LIMIT = 8000
+FILE_LIMIT = 250000
 
 '''model parameters'''
 KERNEL_SIZES = [6, 8]
 NUM_OF_KERNELS = [30, 30]
-DENSE_LAYERS = [32]
+DENSE_LAYERS = []
 
 '''fit parameters'''
 BATCH_SIZE = 264
@@ -277,7 +277,6 @@ def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit,
                                                    custom_file_limit=c_file_limit)
 
     model = train_model(model, train_gen, valid_gen, epochs)
-    model.save(model_path)
 
     return model
 
@@ -339,21 +338,25 @@ def load_data(f_names):
 
 if __name__ == '__main__':
 
-    if sys.argv[1] == '-stats':
+    first_arg = sys.argv[1]
+    if first_arg == '-stats':
         f_name = sys.argv[2]
         calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[20, 40, 20], [30, 30, 30], [20, 30, 30]],
                         num_of_kernels=[[6, 8, 10]], file_limits=[FILE_LIMIT], epochs_list=[2], output_file=f_name)
         exit()
-    if sys.argv[1] == '-plot':
+    if first_arg == '-plot':
         f_names = sys.argv[2:]
         load_data(f_names)
         exit()
+
+    rbps = range(1, 8)#[1, 2]
+    if first_arg == '-rbp':
+        rbps = [int(sys.argv[2])]
 
     start = time.time()
 
     print('Starting')
 
-    rbps = [16]
     aucs = []
 
     for rbp in rbps:
@@ -366,22 +369,26 @@ if __name__ == '__main__':
 
         files = [file for file, cons in files]
 
-        exists = os.path.isfile(model_path)
+        exists = os.path.isfile(new_model_path)
         if exists:
             print('loading model')
-            model = keras.models.load_model(model_path)
+            model = keras.models.load_model(new_model_path)
         else:
             print('training model')
             model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
+            model.save(new_model_path)
 
         precision = predict(model, KERNEL_SIZES)
-        aucs.append(precision)
+        aucs.append((rbp, precision))
+
+        with open('AUC/RBP_{}.txt'.format(rbp), 'w') as f:
+            f.write(str(precision))
 
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
 
-    with open(model_path+'_AUC.txt', 'w') as f:
-        f.write('\n'.join([str(auc) for auc in aucs]))
-        f.write('\n' + str(np.average(aucs)))
+    with open('AUC/RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
+        f.write('\n'.join(['RBP{}={}'.format(rbp, auc) for rbp, auc in aucs]))
+        f.write('\n' + str(np.average([auc for rbp, auc in aucs])))
 
-    print('average', np.average(aucs))
+    print('average', np.average([auc for rbp, auc in aucs]))
