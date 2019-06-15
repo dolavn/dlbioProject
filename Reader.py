@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 plt.switch_backend('agg')
 
 PATH = 'RBNS/'
-model_path = 'model'
 # PATH = './'
 
 is_binary_model = True
@@ -24,7 +23,7 @@ use_shuffled_seqs = True
 '''data parameters'''
 valid_p = 0.2
 max_size = 45
-file_limit = 250000
+FILE_LIMIT = 8000
 
 '''model parameters'''
 KERNEL_SIZES = [6, 8]
@@ -40,12 +39,12 @@ dim_func = lambda k_size: (max_size + 2 * k_size - 2, 4, 1)
 
 layers_description = ''.join(['dense{}_{}'.format(i+1, dense) for i, dense in enumerate(DENSE_LAYERS)])
 kernels_description = ''.join(['kernel{}_{}'.format(size, num) for size, num in zip(KERNEL_SIZES, NUM_OF_KERNELS)])
-model_path += '_samp{}_{}_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(file_limit, KERNEL_SIZES,
-                                                                      NUM_OF_KERNELS,
-                                                                      layers_description,
-                                                                      batch_size, EPOCHS,
-                                                                      use_shuffled_seqs,
-                                                                      is_binary_model)
+model_path = 'model_samp{}_{}_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(FILE_LIMIT, KERNEL_SIZES,
+                                                                          NUM_OF_KERNELS,
+                                                                          layers_description,
+                                                                          batch_size, EPOCHS,
+                                                                          use_shuffled_seqs,
+                                                                          is_binary_model)
 
 
 class RBNSreader():
@@ -106,12 +105,7 @@ def sum_vec(arr):
 
 
 def create_model(num_classes, dense_layers=None, kernel_sizes=None, num_of_kernels=None):
-    if not dense_layers:
-        dense_layers = DENSE_LAYERS
-    if not kernel_sizes:
-        kernel_sizes = KERNEL_SIZES
-    if not num_of_kernels:
-        num_of_kernels = NUM_OF_KERNELS
+
     inputs = [Input(shape=dim_func(kernel_size)) for kernel_size in kernel_sizes]
     kernels = [Conv2D(num_of_kernel, (k_size, 4), strides=(1, 1),
                       padding='valid')(inp) for k_size, num_of_kernel, inp in zip(kernel_sizes, num_of_kernels, inputs)]
@@ -125,8 +119,13 @@ def create_model(num_classes, dense_layers=None, kernel_sizes=None, num_of_kerne
     model.summary()
     return model
 
+def load_files(rbp_num):
+    cmpt_path = 'RNCMPT/RBP{}_RNCMPT.sorted'.format(rbp_num)
+    files = get_files_list(rbp_num)
+    cmpt_file = read_file_rncmpt(cmpt_path)
+    return files, cmpt_file, rbp_num
 
-def load_files(args):
+def load_files_from_args(args):
     if len(args) != 3:
         raise BaseException("Not enough arguments")
     else:
@@ -144,7 +143,7 @@ def calc_auc(y_pred):
     else:
         y_pred_scores = [np.dot(y, np.concatenate((np.ones(1) * -10, np.array([20, 10])))) for y in y_pred]
 
-    true = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
+    true = [int(x) for x in np.append(np.ones(1000), np.zeros(len(y_pred) - 1000), axis=0)]
 
     avg_precision = average_precision_score(true, y_pred_scores)
     print('avg_precision', avg_precision)
@@ -152,8 +151,6 @@ def calc_auc(y_pred):
     plt.figure(figsize=(20, 10))
     plt.scatter(range(1, len(y_pred_scores) + 1), y_pred_scores)
     plt.savefig('scores.png')
-
-
 
     return avg_precision
 
@@ -169,12 +166,7 @@ def create_negative_seqs(lines_from_all_files):
 
 def create_train_valid_data(negative_file, positive_files, num_of_classes, kernel_size=None,
                             custom_file_limit=None):
-    if not kernel_size:
-        kernel_size = KERNEL_SIZES
-    print(custom_file_limit)
-    if not custom_file_limit:
-        custom_file_limit = file_limit
-    print(custom_file_limit)
+
     lines_from_all_files = RBNSreader.read_files(positive_files, file_limit=custom_file_limit)
     if use_shuffled_seqs:
         lines_from_all_files += create_negative_seqs(lines_from_all_files)
@@ -265,20 +257,47 @@ def plot_data(results, file_name):
         box_plot(data, '{}_RBP{}'.format(file_name, rbp))
 
 
+def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit):
+
+    num_of_classes = len(files)
+    loss_func = 'categorical_crossentropy'
+    if is_binary_model:
+        num_of_classes = 1
+        loss_func = 'binary_crossentropy'
+
+    model = create_and_compile_model(num_of_classes, loss_func, dense_layers=dense_layer,
+                                     kernel_size=kernel_size, num_of_kernels=num_of_kernel)
+    print('training model')
+    train_gen, valid_gen = create_train_valid_data(negative_file=files[0],
+                                                   positive_files=[files[-2]],
+                                                   num_of_classes=num_of_classes,
+                                                   kernel_size=kernel_size,
+                                                   custom_file_limit=c_file_limit)
+    model = train_model(model, train_gen, valid_gen)
+    model.save(model_path)
+
+    return model
+
+def predict(model, kernel_size):
+    x_test = []
+    for kernel_size_i in kernel_size:
+        x_curr = np.array([DataGenerator.one_hot(seq, max_size, kernel_size_i) for seq in cmpt_seqs])
+        x_test.append(x_curr)
+
+    y_pred = model.predict(x_test)
+    precision = calc_auc(y_pred)
+
+    return precision
+
 def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_limits, epochs_list, output_file):
-    rncmpt_path = 'RNCMPT/RBP{}_RNCMPT.sorted'
-    args = [(sys.argv[0], rncmpt_path.format(rbp), rbp) for rbp in rbp_list]
-    args = [load_files(args) for args in args]
+
+    args = [load_files(rbp) for rbp in rbp_list]
     results = {}
     start = time.time()
     for files, cmpt_seqs, rbp_num in args:
         files = [file for file, cons in files]
         precision_scores = []
-        num_of_classes = len(files)
-        loss_func = 'categorical_crossentropy'
-        if is_binary_model:
-            num_of_classes = 1
-            loss_func = 'binary_crossentropy'
+
         NUM_OF_TRIALS = 10
         for _ in range(NUM_OF_TRIALS):
             for c_file_limit, dense_layer, num_of_kernel, kernel_size, epochs in product(file_limits,
@@ -290,24 +309,10 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                                                                                            num_of_kernel,
                                                                                            kernel_size,
                                                                                            epochs))
-                model = create_and_compile_model(num_of_classes, loss_func, dense_layers=dense_layer,
-                                                 kernel_size=kernel_size, num_of_kernels=num_of_kernel)
-                print('training model')
-                train_gen, valid_gen = create_train_valid_data(negative_file=files[0],
-                                                               positive_files=[files[-2]],
-                                                               num_of_classes=num_of_classes,
-                                                               kernel_size=kernel_size,
-                                                               custom_file_limit=c_file_limit)
-                model = train_model(model, train_gen, valid_gen)
-                model.save(model_path)
-                x_test = []
-                for kernel_size_i in kernel_size:
-                    x_curr = np.array([DataGenerator.one_hot(seq,
-                                                             max_size, kernel_size_i) for seq in cmpt_seqs])
-                    x_test.append(x_curr)
-                y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test[0]) - 1000), axis=0)]
-                y_pred = model.predict(x_test)
-                precision = calc_auc(y_pred, x_test)
+
+                model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit)
+                precision = predict(model, kernel_size)
+
                 precision_scores.append(((dense_layer, kernel_size, num_of_kernel, epochs),
                                          precision))
                 results[rbp_num] = precision_scores
@@ -327,25 +332,21 @@ def load_data(f_names):
 
 
 if __name__ == '__main__':
+
     if sys.argv[1] == '-stats':
         f_name = sys.argv[2]
-        calc_statistics([2, 7], [[32]], [[20, 40, 20], [30, 30, 30], [20, 30, 30]], [[6, 8, 10]],
-                        [file_limit], [2], f_name)
+        calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[20, 40, 20], [30, 30, 30], [20, 30, 30]],
+                        num_of_kernels=[[6, 8, 10]], file_limits=[FILE_LIMIT], epochs_list=[2], output_file=f_name)
         exit()
     if sys.argv[1] == '-plot':
         f_names = sys.argv[2:]
         load_data(f_names)
         exit()
+
     start = time.time()
 
     print('Starting')
 
-    files, cmpt_seqs, rbp_num = load_files(sys.argv)
-    print(files)
-    files = [files[0]] + files[-2:]
-    print(files)
-    model_path += '_rbp' + str(rbp_num) + 'files_' + '_'.join([str(cons) for file, cons in files[1:]])
-    print(model_path)
     rbps = [16]
     aucs = []
 
@@ -357,61 +358,24 @@ if __name__ == '__main__':
         new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join([str(cons) for file, cons in files[1:]])
         print(new_model_path)
 
-    files = [file for file, cons in files]
-    num_of_classes = len(files)
-    print('classes', num_of_classes)
-    loss_func = 'categorical_crossentropy'
-    if is_binary_model:
-        num_of_classes = 1
-        loss_func = 'binary_crossentropy'
+        files = [file for file, cons in files]
 
-    exists = os.path.isfile(model_path)
-    if exists:
-        print('loading model')
-        model = keras.models.load_model(model_path)
-    else:
-        model = create_and_compile_model(num_of_classes, loss_func)
-        print('training model')
-        #for file in files[1:]:
-        train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:],
-                                                       num_of_classes=num_of_classes)
-        model = train_model(model, train_gen, valid_gen)
-        model.save(model_path)
-    x_test = []
-    for kernel_size in KERNEL_SIZES:
-        x_curr = np.array([DataGenerator.one_hot(seq, max_size, kernel_size) for seq in cmpt_seqs])
-        x_test.append(x_curr)
-    y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test[0]) - 1000), axis=0)]
-    y_pred = model.predict(x_test)
-    calc_auc(y_pred, x_test)
-        exists = os.path.isfile(new_model_path)
+        exists = os.path.isfile(model_path)
         if exists:
             print('loading model')
-            model = keras.models.load_model(new_model_path)
+            model = keras.models.load_model(model_path)
         else:
-
-            model = create_and_compile_model(dim, num_of_classes, loss_func)
-
             print('training model')
-            #for file in files[1:]:
-            train_gen, valid_gen = create_train_valid_data(negative_file=files[0], positive_files=files[1:])
-            model = train_model(model, train_gen, valid_gen)
-            model.save(new_model_path)
+            model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT)
 
-        x_test = np.array([DataGenerator.one_hot(seq, max_size, kernel_size) for seq in cmpt_seqs])
-        y_test = [int(x) for x in np.append(np.ones(1000), np.zeros(len(x_test) - 1000), axis=0)]
-        y_pred = model.predict(x_test)
-        auc = calc_auc(y_pred)
-
-        aucs.append(auc)
-        print(auc)
+        precision = predict(model, KERNEL_SIZES)
+        aucs.append(precision)
 
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
-        end = time.time()
-        print('took', (end - start) / 60, 'minutes')
 
     with open(model_path+'_AUC.txt', 'w') as f:
         f.write('\n'.join([str(auc) for auc in aucs]))
         f.write('\n' + str(np.average(aucs)))
-    print(np.average(aucs))
+
+    print('average', np.average(aucs))
