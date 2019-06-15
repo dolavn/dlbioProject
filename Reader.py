@@ -258,7 +258,7 @@ def plot_data(results, file_name):
         box_plot(data, '{}_RBP{}'.format(file_name, rbp))
 
 
-def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs):
+def train_pipeline(negative_file, positive_files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs):
 
     """create model, datasets, train model. Return the trained model"""
     num_of_classes = len(files)
@@ -270,8 +270,8 @@ def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit,
     model = create_and_compile_model(num_of_classes, loss_func, dense_layers=dense_layer,
                                      kernel_size=kernel_size, num_of_kernels=num_of_kernel)
     print('training model')
-    train_gen, valid_gen = create_train_valid_data(negative_file=files[0],
-                                                   positive_files=[files[-2]],
+    train_gen, valid_gen = create_train_valid_data(negative_file=negative_file,
+                                                   positive_files=positive_files,
                                                    num_of_classes=num_of_classes,
                                                    kernel_size=kernel_size,
                                                    custom_file_limit=c_file_limit)
@@ -319,7 +319,9 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                                                                                            num_of_kernel,
                                                                                            kernel_size,
                                                                                            epochs))
-                model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs)
+                negative_file = files[0]
+                positive_files = files[-2:]
+                model = train_pipeline(negative_file, positive_files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs)
                 precision = predict(model, kernel_size, cmpt_seqs)
                 precision_scores.append(((dense_layer, kernel_size, num_of_kernel, epochs),
                                          precision))
@@ -341,30 +343,41 @@ def load_data(f_names):
 
 if __name__ == '__main__':
 
-    if sys.argv[1] == '-stats':
+    first_arg = sys.argv[1]
+    if first_arg == '-stats':
         f_name = sys.argv[2]
         calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[32, 32, 32]],
                         num_of_kernels=[[8, 8, 8], [6, 8, 8], [8, 8, 10], [6, 8, 10]], file_limits=[FILE_LIMIT],
                         epochs_list=[2], output_file=f_name)
         exit()
-    if sys.argv[1] == '-plot':
+    if first_arg == '-plot':
         f_names = sys.argv[2:]
         load_data(f_names)
         exit()
+
+    rbps = range(1, 8)#[1, 2]
+    if first_arg == '-rbp':
+        rbps = [int(sys.argv[2])]
 
     start = time.time()
 
     print('Starting')
 
-    rbps = [sys.argv[1]]
+    rbps = [16]
     aucs = []
 
     for rbp in rbps:
         files, cmpt_seqs, rbp_num = load_files(rbp)
 
-        files = [files[0]] + files[-2:]
+        pos_indexes = [-2, -1]
+
+        positive_file_names = [files[i][0] for i in pos_indexes]
+        positive_files_cons = [str(files[i][1]) for i in pos_indexes]
+
+        negative_file_name = files[0][0]
+
         print('RBP', rbp)
-        new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join([str(cons) for file, cons in files[1:]])
+        new_model_path = model_path + '_rbp' + str(rbp) + 'files_' + '_'.join(positive_files_cons)
         print(new_model_path)
 
         files = [file for file, cons in files]
@@ -375,16 +388,22 @@ if __name__ == '__main__':
             model = keras.models.load_model(new_model_path)
         else:
             print('training model')
-            model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
+            print(negative_file_name)
+            print(positive_file_names)
+            model = train_pipeline(negative_file_name, positive_file_names, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
+            model.save(new_model_path)
 
         precision = predict(model, KERNEL_SIZES, cmpt_seqs)
-        aucs.append(precision)
+        aucs.append((rbp, precision))
+
+        with open('AUC/RBP_{}.txt'.format(rbp), 'w') as f:
+            f.write(str(precision))
 
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
 
-    print('average', np.average(aucs))
-    with open(model_path+'rbp{}_AUC.txt'.format(rbps[0]), 'w') as f:
-        f.write('\n'.join([str(auc) for auc in aucs]))
-        f.write('\n' + str(np.average(aucs)))
+    with open('AUC/RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
+        f.write('\n'.join(['RBP{}={}'.format(rbp, auc) for rbp, auc in aucs]))
+        f.write('\n' + str(np.average([auc for rbp, auc in aucs])))
 
+    print('average', np.average([auc for rbp, auc in aucs]))
