@@ -17,12 +17,12 @@ plt.switch_backend('agg')
 PATH = 'RBNS/'
 # PATH = './'
 
-is_binary_model = True
-use_shuffled_seqs = True
+IS_BINARY_MODEL = True
+USE_SHUFFLED_SEQS = True
 
 '''data parameters'''
 valid_p = 0.2
-max_size = 45
+MAX_SAMPLE_SIZE = 45
 FILE_LIMIT = 8000
 
 '''model parameters'''
@@ -31,20 +31,19 @@ NUM_OF_KERNELS = [30, 30]
 DENSE_LAYERS = [32]
 
 '''fit parameters'''
-batch_size = 264
+BATCH_SIZE = 264
 EPOCHS = 2
 workers = 1
 
-dim_func = lambda k_size: (max_size + 2 * k_size - 2, 4, 1)
+dim_func = lambda k_size: (MAX_SAMPLE_SIZE + 2 * k_size - 2, 4, 1)
 
 layers_description = ''.join(['dense{}_{}'.format(i+1, dense) for i, dense in enumerate(DENSE_LAYERS)])
 kernels_description = ''.join(['kernel{}_{}'.format(size, num) for size, num in zip(KERNEL_SIZES, NUM_OF_KERNELS)])
-model_path = 'model_samp{}_{}_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(FILE_LIMIT, KERNEL_SIZES,
-                                                                          NUM_OF_KERNELS,
+model_path = 'model_samp{}_{}_{}_batch{}_epoch{}_shuf_{}_binary{}'.format(FILE_LIMIT, kernels_description,
                                                                           layers_description,
-                                                                          batch_size, EPOCHS,
-                                                                          use_shuffled_seqs,
-                                                                          is_binary_model)
+                                                                          BATCH_SIZE, EPOCHS,
+                                                                          USE_SHUFFLED_SEQS,
+                                                                          IS_BINARY_MODEL)
 
 
 class RBNSreader():
@@ -105,7 +104,7 @@ def sum_vec(arr):
 
 
 def create_model(num_classes, dense_layers=None, kernel_sizes=None, num_of_kernels=None):
-
+    """Model with different kernel sizes"""
     inputs = [Input(shape=dim_func(kernel_size)) for kernel_size in kernel_sizes]
     kernels = [Conv2D(num_of_kernel, (k_size, 4), strides=(1, 1),
                       padding='valid')(inp) for k_size, num_of_kernel, inp in zip(kernel_sizes, num_of_kernels, inputs)]
@@ -138,7 +137,7 @@ def load_files_from_args(args):
 
 def calc_auc(y_pred):
 
-    if is_binary_model:
+    if IS_BINARY_MODEL:
         y_pred_scores = [y[0] for y in y_pred]
     else:
         y_pred_scores = [np.dot(y, np.concatenate((np.ones(1) * -10, np.array([20, 10])))) for y in y_pred]
@@ -156,6 +155,7 @@ def calc_auc(y_pred):
 
 
 def create_negative_seqs(lines_from_all_files):
+    """For each seq create a shuffled version"""
     negative_seqs = []
     for seq, ind in lines_from_all_files:
         seq_list = [ch for ch in seq]
@@ -166,9 +166,10 @@ def create_negative_seqs(lines_from_all_files):
 
 def create_train_valid_data(negative_file, positive_files, num_of_classes, kernel_size=None,
                             custom_file_limit=None):
+    """Create generators for train an validation"""
 
     lines_from_all_files = RBNSreader.read_files(positive_files, file_limit=custom_file_limit)
-    if use_shuffled_seqs:
+    if USE_SHUFFLED_SEQS:
         lines_from_all_files += create_negative_seqs(lines_from_all_files)
     else:
         lines_from_all_files += RBNSreader.read_file(negative_file, 0, custom_file_limit * 2)
@@ -183,14 +184,14 @@ def create_train_valid_data(negative_file, positive_files, num_of_classes, kerne
     print('train size', len(train_data))
     print('kernel size', kernel_size)
     train_gen = DataGenerator(train_data, num_of_classes=num_of_classes, kernel_sizes=kernel_size,
-                              max_sample_size=max_size,
-                              batch_size=batch_size, shuffle=True)
+                              max_sample_size=MAX_SAMPLE_SIZE,
+                              batch_size=BATCH_SIZE, shuffle=True)
 
     valid_gen = None
     if valid_n > 0:
         valid_gen = DataGenerator(validation_data, num_of_classes=num_of_classes, kernel_sizes=kernel_size,
-                                  max_sample_size=max_size,
-                                  batch_size=batch_size, shuffle=True)
+                                  max_sample_size=MAX_SAMPLE_SIZE,
+                                  batch_size=BATCH_SIZE, shuffle=True)
 
     return train_gen, valid_gen
 
@@ -208,12 +209,12 @@ def create_and_compile_model(num_of_classes, loss_func, dense_layers=None, kerne
     return model
 
 
-def train_model(model, train_gen, valid_gen):
+def train_model(model, train_gen, valid_gen, epochs):
 
     model.fit_generator(generator=train_gen,
                         validation_data=valid_gen,
                         use_multiprocessing=False,
-                        epochs=EPOCHS,
+                        epochs=epochs,
                         workers=workers)
     return model
 
@@ -257,11 +258,12 @@ def plot_data(results, file_name):
         box_plot(data, '{}_RBP{}'.format(file_name, rbp))
 
 
-def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit):
+def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs):
 
+    """create model, datasets, train model. Return the trained model"""
     num_of_classes = len(files)
     loss_func = 'categorical_crossentropy'
-    if is_binary_model:
+    if IS_BINARY_MODEL:
         num_of_classes = 1
         loss_func = 'binary_crossentropy'
 
@@ -273,15 +275,18 @@ def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit)
                                                    num_of_classes=num_of_classes,
                                                    kernel_size=kernel_size,
                                                    custom_file_limit=c_file_limit)
-    model = train_model(model, train_gen, valid_gen)
+
+    model = train_model(model, train_gen, valid_gen, epochs)
     model.save(model_path)
 
     return model
 
 def predict(model, kernel_size):
+    """Use model to predict AUPR on the test dataset"""
+
     x_test = []
     for kernel_size_i in kernel_size:
-        x_curr = np.array([DataGenerator.one_hot(seq, max_size, kernel_size_i) for seq in cmpt_seqs])
+        x_curr = np.array([DataGenerator.one_hot(seq, MAX_SAMPLE_SIZE, kernel_size_i) for seq in cmpt_seqs])
         x_test.append(x_curr)
 
     y_pred = model.predict(x_test)
@@ -290,6 +295,7 @@ def predict(model, kernel_size):
     return precision
 
 def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_limits, epochs_list, output_file):
+    """Try different hyper-parameters"""
 
     args = [load_files(rbp) for rbp in rbp_list]
     results = {}
@@ -310,7 +316,7 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                                                                                            kernel_size,
                                                                                            epochs))
 
-                model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit)
+                model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit, epochs)
                 precision = predict(model, kernel_size)
 
                 precision_scores.append(((dense_layer, kernel_size, num_of_kernel, epochs),
@@ -366,7 +372,7 @@ if __name__ == '__main__':
             model = keras.models.load_model(model_path)
         else:
             print('training model')
-            model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT)
+            model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
 
         precision = predict(model, KERNEL_SIZES)
         aucs.append(precision)
