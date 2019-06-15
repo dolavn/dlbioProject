@@ -381,7 +381,7 @@ if __name__ == '__main__':
             model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT, EPOCHS)
             model.save(new_model_path)
 
-        precision = predict(model, KERNEL_SIZES)
+        precision = predict(model, KERNEL_SIZES, cmpt_seqs)
         aucs.append((rbp, precision))
 
         with open('AUC/RBP_{}.txt'.format(rbp), 'w') as f:
