@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 plt.switch_backend('agg')
 
 PATH = 'RBNS/'
-# PATH = './'
+PATH = './'
 
 is_binary_model = True
 use_shuffled_seqs = True
@@ -23,7 +23,7 @@ use_shuffled_seqs = True
 '''data parameters'''
 valid_p = 0.2
 max_size = 45
-FILE_LIMIT = 8000
+FILE_LIMIT = 200000
 
 '''model parameters'''
 KERNEL_SIZES = [6, 8]
@@ -246,7 +246,7 @@ def box_plot(data, name):
         box.set(color='#7570b3', linewidth=2)
     for median in bp['medians']:
         median.set(color='#b2df8a', linewidth=2)
-    ax.set_xticklabels(tags, fontsize=10)
+    ax.set_xticklabels(tags, fontsize=10, rotation='45')
     # Save the figure
     fig.savefig('{}.png'.format(name), bbox_inches='tight')
 
@@ -278,7 +278,8 @@ def train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit)
 
     return model
 
-def predict(model, kernel_size):
+
+def predict(model, kernel_size, cmpt_seqs):
     x_test = []
     for kernel_size_i in kernel_size:
         x_curr = np.array([DataGenerator.one_hot(seq, max_size, kernel_size_i) for seq in cmpt_seqs])
@@ -288,6 +289,7 @@ def predict(model, kernel_size):
     precision = calc_auc(y_pred)
 
     return precision
+
 
 def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_limits, epochs_list, output_file):
 
@@ -309,9 +311,8 @@ def calc_statistics(rbp_list, dense_list, num_of_kernels, kernel_sizes, file_lim
                                                                                            num_of_kernel,
                                                                                            kernel_size,
                                                                                            epochs))
-
                 model = train_pipeline(files, dense_layer, kernel_size, num_of_kernel, c_file_limit)
-                precision = predict(model, kernel_size)
+                precision = predict(model, kernel_size, cmpt_seqs)
 
                 precision_scores.append(((dense_layer, kernel_size, num_of_kernel, epochs),
                                          precision))
@@ -335,8 +336,9 @@ if __name__ == '__main__':
 
     if sys.argv[1] == '-stats':
         f_name = sys.argv[2]
-        calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[20, 40, 20], [30, 30, 30], [20, 30, 30]],
-                        num_of_kernels=[[6, 8, 10]], file_limits=[FILE_LIMIT], epochs_list=[2], output_file=f_name)
+        calc_statistics(rbp_list=[2, 7], dense_list=[[32]], kernel_sizes=[[32, 32, 32]],
+                        num_of_kernels=[[8, 8, 8], [6, 8, 8], [8, 8, 10], [6, 8, 10]], file_limits=[FILE_LIMIT],
+                        epochs_list=[2], output_file=f_name)
         exit()
     if sys.argv[1] == '-plot':
         f_names = sys.argv[2:]
@@ -368,7 +370,7 @@ if __name__ == '__main__':
             print('training model')
             model = train_pipeline(files, DENSE_LAYERS, KERNEL_SIZES, NUM_OF_KERNELS, FILE_LIMIT)
 
-        precision = predict(model, KERNEL_SIZES)
+        precision = predict(model, KERNEL_SIZES, cmpt_seqs)
         aucs.append(precision)
 
     end = time.time()
