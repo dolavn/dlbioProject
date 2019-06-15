@@ -7,12 +7,11 @@ reverse_compliment_base = {'A': 'U', 'C': 'G', 'T': 'A', 'G': 'C', 'N': 'N'}
 
 class DataGenerator(keras.utils.Sequence):
 
-    def __init__(self, lines, num_of_classes, kernel_size, max_sample_size, batch_size=16, shuffle=False):
+    def __init__(self, lines, num_of_classes, kernel_sizes, max_sample_size, batch_size=16, shuffle=False):
 
-        self.kernel_size = kernel_size
+        self.kernel_sizes = kernel_sizes
         self.max_sample_size = max_sample_size
-        self.dim = (max_sample_size + 2 * kernel_size - 2, 4, 1)
-
+        self.dim = [(max_sample_size + 2 * kernel_size - 2, 4, 1) for kernel_size in self.kernel_sizes]
         self.batch_size = batch_size
 
         self.lines = lines
@@ -41,16 +40,20 @@ class DataGenerator(keras.utils.Sequence):
             np.random.shuffle(self.indexes)
 
     def _data_generation(self, indices_list):
-        x = np.empty((self.batch_size, *self.dim))
+        xs = []
         y = np.empty((self.batch_size, self.num_of_classes))
+        for kernel_size, dim in zip(self.kernel_sizes, self.dim):
+            x = np.empty((self.batch_size, *dim))
+            for i, ind in enumerate(indices_list):
+                curr_x = DataGenerator.one_hot(self.lines[ind][0], self.max_sample_size, kernel_size)
+                x[i, ] = curr_x
+            xs.append(x)
         for i, ind in enumerate(indices_list):
-            curr_x = DataGenerator.one_hot(self.lines[ind][0], self.max_sample_size, self.kernel_size)
-            x[i, ] = curr_x
             if self.num_of_classes == 1:
                 y[i, ] = 1 if self.lines[ind][1] > 0 else 0
             else:
                 y[i] = [1 if file_ind == self.lines[ind][1] else 0 for file_ind in range(self.num_of_classes)]
-        return x, y
+        return xs, y
 
     @staticmethod
     def reverse_compliment(string):
