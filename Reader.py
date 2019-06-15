@@ -23,11 +23,11 @@ USE_SHUFFLED_SEQS = True
 '''data parameters'''
 valid_p = 0
 MAX_SAMPLE_SIZE = 45
-FILE_LIMIT = 500000
+FILE_LIMIT = 2000000
 
 '''model parameters'''
-KERNEL_SIZES = [6, 8]
-NUM_OF_KERNELS = [30, 30]
+KERNEL_SIZES = [6, 8, 10]
+NUM_OF_KERNELS = [32, 32, 32]
 DENSE_LAYERS = []
 
 '''fit parameters'''
@@ -277,7 +277,6 @@ def train_pipeline(negative_file, positive_files, dense_layer, kernel_size, num_
                                                    custom_file_limit=c_file_limit)
 
     model = train_model(model, train_gen, valid_gen, epochs)
-    model.save(model_path)
 
     return model
 
@@ -361,7 +360,6 @@ if __name__ == '__main__':
 
     print('Starting')
 
-    rbps = range(1, 8)
     aucs = []
 
     for rbp in rbps:
@@ -400,8 +398,9 @@ if __name__ == '__main__':
     end = time.time()
     print('took', (end - start) / 60, 'minutes')
 
-    with open('AUC/RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
-        f.write('\n'.join(['RBP{}={}'.format(rbp, auc) for rbp, auc in aucs]))
-        f.write('\n' + str(np.average([auc for rbp, auc in aucs])))
+    if len(rbps) > 1:
+        with open('AUC/RBPs_{}.txt'.format('_'.join([str(rbp) for rbp, auc in aucs])), 'w') as f:
+            f.write('\n'.join(['RBP{}={}'.format(rbp, auc) for rbp, auc in aucs]))
+            f.write('\n' + str(np.average([auc for rbp, auc in aucs])))
 
     print('average', np.average([auc for rbp, auc in aucs]))
